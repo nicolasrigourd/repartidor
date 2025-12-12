@@ -1,4 +1,4 @@
-import "./BottomBar.css";
+import "./bottomBar.css";
 
 const TABS = [
   { id: "home", label: "Home", icon: "home" },
