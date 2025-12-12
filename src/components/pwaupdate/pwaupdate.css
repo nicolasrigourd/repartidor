@@ -1,0 +1,27 @@
+.pwa-update-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 80px; /* arriba del bottom bar */
+  background: rgba(2, 6, 23, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 9999;
+  color: #e5e7eb;
+  font-size: 0.9rem;
+}
+
+.pwa-update-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: #22c55e;
+  color: #0b1120;
+  font-weight: 700;
+  cursor: pointer;
+}

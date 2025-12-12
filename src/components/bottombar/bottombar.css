@@ -1,0 +1,60 @@
+.bottombar-root {
+  height: 70px;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.96);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.bottombar-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.bottombar-tab-active {
+  color: #22c55e;
+}
+
+.bottombar-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bottombar-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.bottombar-label {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 600px) {
+  .bottombar-root {
+    height: 64px;
+  }
+
+  .bottombar-label {
+    font-size: 0.7rem;
+  }
+
+  .bottombar-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+}

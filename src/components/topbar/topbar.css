@@ -1,0 +1,124 @@
+.topbar-root {
+  height: 64px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  /* Fondo verde principal, estilo app nativa */
+  background: #16a34a; /* verde principal */
+  border-bottom: 1px solid rgba(15, 23, 42, 0.4);
+}
+
+/* Lados izquierdo y derecho para centrar el título */
+.topbar-left,
+.topbar-right {
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.topbar-right {
+  justify-content: flex-end;
+}
+
+.topbar-spacer {
+  width: 80px;
+  height: 1px;
+}
+
+/* Centro: título + ID */
+.topbar-center {
+  flex: 1;
+  text-align: center;
+}
+
+.topbar-title {
+  font-size: 1rem;
+  color: #020617; /* casi negro para el texto "ID:" */
+  font-weight: 500;
+}
+
+/* Chip con el ID del repartidor */
+.topbar-highlight {
+  font-weight: 700;
+  color: #020617; /* negro fuerte */
+  margin-left: 4px;
+}
+
+
+/* Botón de volver (para otras pantallas, no Home) */
+.topbar-back-btn {
+  border: none;
+  background: rgba(236, 253, 245, 0.9); /* fondo claro sobre verde */
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #022c22; /* verde muy oscuro / casi negro */
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.4);
+}
+
+.topbar-back-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.topbar-back-btn:hover {
+  background: #f0fdf4;
+}
+
+/* Botón de 'Salir' en rojo */
+.topbar-right-btn {
+  min-width: 72px;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  background: #ef4444; /* rojo principal */
+  color: #ffffff; /* letras blancas */
+  cursor: pointer;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+}
+
+.topbar-right-btn:hover {
+  background: #dc2626; /* rojo más oscuro al pasar el cursor */
+}
+
+
+.topbar-right-btn:hover {
+  background: rgba(239, 68, 68, 0.26);
+}
+
+/* Ajuste para celu */
+@media (max-width: 600px) {
+  .topbar-root {
+    height: 56px;
+    padding: 0 12px;
+  }
+
+  .topbar-left,
+  .topbar-right,
+  .topbar-spacer {
+    width: 64px;
+  }
+
+  .topbar-title {
+    font-size: 0.95rem;
+  }
+
+  .topbar-highlight {
+    font-size: 0.85rem;
+    padding: 2px 8px;
+  }
+
+  .topbar-right-btn {
+    min-width: 64px;
+    padding: 6px 8px;
+    font-size: 0.75rem;
+  }
+}
