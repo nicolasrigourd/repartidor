@@ -16,12 +16,14 @@ import {
   onSnapshot,
   updateDoc,
 } from "firebase/firestore";
-import { db } from "../../firebaseconfig";
+
+import { getToken, onMessage } from "firebase/messaging";
+import { db, messaging } from "../../firebaseconfig";
 
 function Home({ repartidorId, onLogout }) {
   const [activeTab, setActiveTab] = useState("home");
 
-  // Estado del cadete (ahora lo cambia el flow real)
+  // Estado del cadete (lo cambia el flow real)
   const [estadoCadete, setEstadoCadete] = useState("disponible"); // disponible | en_pedido
 
   // GPS UI state
@@ -163,9 +165,7 @@ function Home({ repartidorId, onLogout }) {
 
         if (err.code === 1) {
           setGeoStatus("denied");
-          setGeoError(
-            "Permiso denegado. Habilitá Ubicación en permisos del sitio."
-          );
+          setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
         } else if (err.code === 2) {
           setGeoStatus("unavailable");
           setGeoError("Ubicación no disponible. ¿Tenés el GPS apagado?");
@@ -198,9 +198,7 @@ function Home({ repartidorId, onLogout }) {
 
         if (err.code === 1) {
           setGeoStatus("denied");
-          setGeoError(
-            "Permiso denegado. Habilitá Ubicación en permisos del sitio."
-          );
+          setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
         } else if (err.code === 2) {
           setGeoStatus("unavailable");
           setGeoError("Ubicación no disponible. Encendé el GPS del teléfono.");
@@ -231,7 +229,6 @@ function Home({ repartidorId, onLogout }) {
       console.log("🟡 [GPS] Chequeando permisos de geolocalización");
 
       if (!navigator.geolocation) {
-        console.log("🔴 [GPS] Geolocalización no soportada");
         setGeoStatus("unavailable");
         setGeoError("Este dispositivo no soporta geolocalización.");
         return;
@@ -245,17 +242,12 @@ function Home({ repartidorId, onLogout }) {
           if (cancelled) return;
 
           if (perm.state === "granted") {
-            console.log("✅ [GPS] Permiso ya concedido → inicio tracking automático");
             setGeoStatus("granted");
             startTracking();
           } else if (perm.state === "denied") {
-            console.log("❌ [GPS] Permiso denegado");
             setGeoStatus("denied");
-            setGeoError(
-              "Permiso denegado. Habilitá Ubicación en permisos del sitio."
-            );
+            setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
           } else {
-            console.log("⚠️ [GPS] Permiso en estado prompt");
             setGeoStatus("prompt");
           }
 
@@ -268,9 +260,7 @@ function Home({ repartidorId, onLogout }) {
               startTracking();
             } else if (perm.state === "denied") {
               setGeoStatus("denied");
-              setGeoError(
-                "Permiso denegado. Habilitá Ubicación en permisos del sitio."
-              );
+              setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
               stopTracking();
             } else {
               setGeoStatus("prompt");
@@ -282,7 +272,6 @@ function Home({ repartidorId, onLogout }) {
           setGeoStatus("prompt");
         }
       } else {
-        console.log("⚠️ [GPS] Permissions API no disponible");
         setGeoStatus("prompt");
       }
     };
@@ -366,9 +355,7 @@ function Home({ repartidorId, onLogout }) {
     return (
       <div className="location-banner location-banner-warn">
         <div className="location-texts">
-          <span>
-            Necesitamos tu ubicación para asignación de pedidos y seguimiento.
-          </span>
+          <span>Necesitamos tu ubicación para asignación de pedidos y seguimiento.</span>
           {geoError && <span className="location-error">{geoError}</span>}
         </div>
         <button className="location-btn" onClick={requestLocation}>
@@ -377,6 +364,67 @@ function Home({ repartidorId, onLogout }) {
       </div>
     );
   };
+
+  // =========================================================
+  // 🔔 FCM: Permiso + Token + Foreground listener
+  // =========================================================
+  useEffect(() => {
+    if (!repartidorId) return;
+
+    let unsubMsg = null;
+
+    const initFCM = async () => {
+      try {
+        if (!("Notification" in window)) {
+          console.log("❌ [FCM] Notification API no soportada");
+          return;
+        }
+
+        const perm = await Notification.requestPermission();
+        console.log("🔔 [FCM] Permiso:", perm);
+        if (perm !== "granted") return;
+
+        // ⚠️ tu VAPID
+        const token = await getToken(messaging, {
+          vapidKey:
+            "BEDzaIKrOaZmTFlQ_9zwjNyVAOwLFZJ-Q-xiOe6Oi_UNJhsTS-9PFn2RncLYmHHHvswEVdsuEPuTU-qnMwVMhdI",
+        });
+
+        if (!token) {
+          console.log("⚠️ [FCM] No se pudo obtener token");
+          return;
+        }
+
+        console.log("✅ [FCM] Token:", token);
+
+        await setDoc(
+          doc(db, "ubicacionesCadetes", repartidorId),
+          {
+            cadeteId: repartidorId,
+            fcmToken: token,
+            fcmUpdatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        console.log("✅ [FCM] Token guardado en Firestore");
+
+        unsubMsg = onMessage(messaging, (payload) => {
+          console.log("📩 [FCM] Mensaje foreground:", payload);
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+          // Si querés, acá podés disparar UI (toast) o refrescar estado
+        });
+      } catch (e) {
+        console.error("❌ [FCM] Error init:", e);
+      }
+    };
+
+    initFCM();
+
+    return () => {
+      if (typeof unsubMsg === "function") unsubMsg();
+    };
+  }, [repartidorId]);
 
   // =========================================================
   // 🔥 LISTENER: detectar si le ofertaron un pedido al repartidor
@@ -396,18 +444,15 @@ function Home({ repartidorId, onLogout }) {
       q,
       (snap) => {
         if (snap.empty) {
-          // Si no hay oferta, no mostramos modal
           setPedidoOfertado(null);
           return;
         }
 
-        // Tomamos el primero (debería ser 1)
         const docSnap = snap.docs[0];
         const data = { ...docSnap.data(), _docId: docSnap.id };
 
         console.log("📩 [ORDERS] Oferta recibida:", data.id || docSnap.id);
 
-        // Evitar reabrir modal si ya es el mismo pedido
         setPedidoOfertado((prev) => {
           const prevId = prev?.id || prev?._docId;
           const nextId = data.id || data._docId;
@@ -474,8 +519,6 @@ function Home({ repartidorId, onLogout }) {
 
       setPedidoOfertado(null);
       setEstadoCadete("en_pedido");
-
-      // El listener de "asignado" va a setear pedidoActivo solo
       console.log("✅ [ORDERS] Oferta aceptada:", orderDocId);
     } catch (err) {
       console.error("❌ [ORDERS] Error aceptando oferta:", err);
@@ -495,7 +538,6 @@ function Home({ repartidorId, onLogout }) {
 
       setPedidoOfertado(null);
       setEstadoCadete("disponible");
-
       console.log("✅ [ORDERS] Oferta rechazada:", orderDocId, reason);
     } catch (err) {
       console.error("❌ [ORDERS] Error rechazando oferta:", err);
@@ -503,7 +545,6 @@ function Home({ repartidorId, onLogout }) {
   };
 
   const onTimeoutOferta = async (pedido) => {
-    // si no respondió, vuelve al pool
     await rechazarOferta(pedido, "expired");
   };
 
@@ -522,7 +563,6 @@ function Home({ repartidorId, onLogout }) {
 
       setEstadoCadete("disponible");
       setPedidoActivo(null);
-
       console.log("✅ [ORDERS] Pedido finalizado:", orderDocId);
     } catch (err) {
       console.error("❌ [ORDERS] Error finalizando:", err);
@@ -586,7 +626,6 @@ function Home({ repartidorId, onLogout }) {
 
       <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
 
-      {/* MODAL: solo se muestra si hay pedido ofertado */}
       <ModalPedidoAsignado
         pedido={pedidoOfertado}
         segundos={20}

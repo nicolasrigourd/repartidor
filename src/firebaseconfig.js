@@ -1,6 +1,8 @@
 // src/firebaseconfig.js
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getMessaging } from "firebase/messaging";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCc-QMneztyou0qbtnUnAp61ECGZtiAqjo",
@@ -11,10 +13,7 @@ const firebaseConfig = {
   appId: "1:918934733683:web:d18ccd2d08fdbe2e7b7b06",
 };
 
-const app = initializeApp(firebaseConfig);
-
-// ✅ esto es lo que te faltaba
+export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
-
-// (opcional) si en algún lado querés usar el app
-export default app;
+export const messaging = getMessaging(app);
+export const functions = getFunctions(app, "southamerica-east1");
