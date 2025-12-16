@@ -4,13 +4,24 @@ import "./home.css";
 import TopBar from "../../components/topbar/topbar";
 import BottomBar from "../../components/bottombar/bottombar";
 import ModalPedidoAsignado from "../../components/modalpedidoasignado/modalpedidoasignado";
+import CardPedidoActivo from "../../components/cardpedidoactivo/cardpedidoactivo";
 
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  serverTimestamp,
+  collection,
+  query,
+  where,
+  onSnapshot,
+  updateDoc,
+} from "firebase/firestore";
 import { db } from "../../firebaseconfig";
 
 function Home({ repartidorId, onLogout }) {
   const [activeTab, setActiveTab] = useState("home");
 
+  // Estado del cadete (ahora lo cambia el flow real)
   const [estadoCadete, setEstadoCadete] = useState("disponible"); // disponible | en_pedido
 
   // GPS UI state
@@ -19,9 +30,9 @@ function Home({ repartidorId, onLogout }) {
   const [geoError, setGeoError] = useState(null);
   const [liveCoords, setLiveCoords] = useState(null);
 
-  // Pedido simulado / modal
-  const [pedidoAsignado, setPedidoAsignado] = useState(null);
-  const [mensajePedido, setMensajePedido] = useState("");
+  // Pedido ofertado (dispara modal) + pedido activo (se muestra en Home)
+  const [pedidoOfertado, setPedidoOfertado] = useState(null);
+  const [pedidoActivo, setPedidoActivo] = useState(null);
 
   // refs para no duplicar watchers
   const watchIdRef = useRef(null);
@@ -29,13 +40,12 @@ function Home({ repartidorId, onLogout }) {
   const lastSentCoordsRef = useRef(null);
 
   // ===== CONFIG TRACKING REAL =====
-const trackingConfig = (estado) => {
-  if (estado === "en_pedido") {
-    return { minMs: 10000, minMeters: 15 };
-  }
-  return { minMs: 5000, minMeters: 10 };
-};
-
+  const trackingConfig = (estado) => {
+    if (estado === "en_pedido") {
+      return { minMs: 10000, minMeters: 15 };
+    }
+    return { minMs: 5000, minMeters: 10 };
+  };
 
   const distanceMeters = (a, b) => {
     const R = 6371000;
@@ -153,7 +163,9 @@ const trackingConfig = (estado) => {
 
         if (err.code === 1) {
           setGeoStatus("denied");
-          setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
+          setGeoError(
+            "Permiso denegado. Habilitá Ubicación en permisos del sitio."
+          );
         } else if (err.code === 2) {
           setGeoStatus("unavailable");
           setGeoError("Ubicación no disponible. ¿Tenés el GPS apagado?");
@@ -186,7 +198,9 @@ const trackingConfig = (estado) => {
 
         if (err.code === 1) {
           setGeoStatus("denied");
-          setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
+          setGeoError(
+            "Permiso denegado. Habilitá Ubicación en permisos del sitio."
+          );
         } else if (err.code === 2) {
           setGeoStatus("unavailable");
           setGeoError("Ubicación no disponible. Encendé el GPS del teléfono.");
@@ -237,7 +251,9 @@ const trackingConfig = (estado) => {
           } else if (perm.state === "denied") {
             console.log("❌ [GPS] Permiso denegado");
             setGeoStatus("denied");
-            setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
+            setGeoError(
+              "Permiso denegado. Habilitá Ubicación en permisos del sitio."
+            );
           } else {
             console.log("⚠️ [GPS] Permiso en estado prompt");
             setGeoStatus("prompt");
@@ -252,7 +268,9 @@ const trackingConfig = (estado) => {
               startTracking();
             } else if (perm.state === "denied") {
               setGeoStatus("denied");
-              setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
+              setGeoError(
+                "Permiso denegado. Habilitá Ubicación en permisos del sitio."
+              );
               stopTracking();
             } else {
               setGeoStatus("prompt");
@@ -275,6 +293,7 @@ const trackingConfig = (estado) => {
       cancelled = true;
       stopTracking();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // cuando cambia estadoCadete, reset de throttles para que impacte rápido
@@ -359,36 +378,155 @@ const trackingConfig = (estado) => {
     );
   };
 
-  // ========= MODAL PEDIDO (SIMULACIÓN) =========
-  const handleSimularPedido = () => {
-    setMensajePedido("");
-    setPedidoAsignado({
-      id: "PED-TEST-001",
-      origen: "Local Central",
-      destino: "Tribunales - Mesa de Entradas",
-    });
-  };
+  // =========================================================
+  // 🔥 LISTENER: detectar si le ofertaron un pedido al repartidor
+  // =========================================================
+  useEffect(() => {
+    if (!repartidorId) return;
 
-  const handleAceptarPedido = (pedido) => {
-    setPedidoAsignado(null);
-    setEstadoCadete("en_pedido");
-    setMensajePedido(`✅ Aceptaste el pedido ${pedido?.id || ""}`);
-  };
+    console.log("👂 [ORDERS] Listener ofertados para cadete:", repartidorId);
 
-  const handleRechazarPedido = (pedido) => {
-    setPedidoAsignado(null);
-    setEstadoCadete("disponible");
-    setMensajePedido(`❌ Rechazaste el pedido ${pedido?.id || ""}`);
-  };
+    const q = query(
+      collection(db, "orders"),
+      where("status", "==", "ofertado"),
+      where("offer.cadeteId", "==", repartidorId)
+    );
 
-  const handleTimeoutPedido = (pedido) => {
-    setPedidoAsignado(null);
-    if (!pedido) {
-      setMensajePedido("⏱️ Se terminó el tiempo para responder el pedido.");
-      return;
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        if (snap.empty) {
+          // Si no hay oferta, no mostramos modal
+          setPedidoOfertado(null);
+          return;
+        }
+
+        // Tomamos el primero (debería ser 1)
+        const docSnap = snap.docs[0];
+        const data = { ...docSnap.data(), _docId: docSnap.id };
+
+        console.log("📩 [ORDERS] Oferta recibida:", data.id || docSnap.id);
+
+        // Evitar reabrir modal si ya es el mismo pedido
+        setPedidoOfertado((prev) => {
+          const prevId = prev?.id || prev?._docId;
+          const nextId = data.id || data._docId;
+          if (prevId === nextId) return prev;
+          return data;
+        });
+      },
+      (err) => {
+        console.error("❌ [ORDERS] Error listener ofertados:", err);
+      }
+    );
+
+    return () => unsub();
+  }, [repartidorId]);
+
+  // =========================================================
+  // 🔥 LISTENER: pedido activo (status asignado) para este cadete
+  // =========================================================
+  useEffect(() => {
+    if (!repartidorId) return;
+
+    const q = query(
+      collection(db, "orders"),
+      where("status", "==", "asignado"),
+      where("assignedCadeteId", "==", repartidorId)
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        if (snap.empty) {
+          setPedidoActivo(null);
+          return;
+        }
+
+        const docSnap = snap.docs[0];
+        const data = { ...docSnap.data(), _docId: docSnap.id };
+        setPedidoActivo(data);
+        setEstadoCadete("en_pedido");
+      },
+      (err) => console.error("❌ [ORDERS] Error listener asignado:", err)
+    );
+
+    return () => unsub();
+  }, [repartidorId]);
+
+  // =========================================================
+  // ✅ Acciones sobre oferta
+  // =========================================================
+  const resolveOrderDocId = (pedido) => pedido?._docId || pedido?.id;
+
+  const aceptarOferta = async (pedido) => {
+    const orderDocId = resolveOrderDocId(pedido);
+    if (!orderDocId) return;
+
+    try {
+      await updateDoc(doc(db, "orders", orderDocId), {
+        status: "asignado",
+        assignedCadeteId: repartidorId,
+        assignedAt: serverTimestamp(),
+        "offer.state": "accepted",
+        "offer.respondedAt": serverTimestamp(),
+      });
+
+      setPedidoOfertado(null);
+      setEstadoCadete("en_pedido");
+
+      // El listener de "asignado" va a setear pedidoActivo solo
+      console.log("✅ [ORDERS] Oferta aceptada:", orderDocId);
+    } catch (err) {
+      console.error("❌ [ORDERS] Error aceptando oferta:", err);
     }
-    setEstadoCadete("disponible");
-    setMensajePedido(`⏱️ Se terminó el tiempo para responder el pedido ${pedido.id}`);
+  };
+
+  const rechazarOferta = async (pedido, reason = "rejected") => {
+    const orderDocId = resolveOrderDocId(pedido);
+    if (!orderDocId) return;
+
+    try {
+      await updateDoc(doc(db, "orders", orderDocId), {
+        status: "pendiente",
+        "offer.state": reason, // rejected | expired
+        "offer.respondedAt": serverTimestamp(),
+      });
+
+      setPedidoOfertado(null);
+      setEstadoCadete("disponible");
+
+      console.log("✅ [ORDERS] Oferta rechazada:", orderDocId, reason);
+    } catch (err) {
+      console.error("❌ [ORDERS] Error rechazando oferta:", err);
+    }
+  };
+
+  const onTimeoutOferta = async (pedido) => {
+    // si no respondió, vuelve al pool
+    await rechazarOferta(pedido, "expired");
+  };
+
+  // =========================================================
+  // ✅ Finalizar pedido (simple dev)
+  // =========================================================
+  const finalizarPedido = async (pedido) => {
+    const orderDocId = resolveOrderDocId(pedido);
+    if (!orderDocId) return;
+
+    try {
+      await updateDoc(doc(db, "orders", orderDocId), {
+        status: "finalizado",
+        finishedAt: serverTimestamp(),
+      });
+
+      setEstadoCadete("disponible");
+      setPedidoActivo(null);
+
+      console.log("✅ [ORDERS] Pedido finalizado:", orderDocId);
+    } catch (err) {
+      console.error("❌ [ORDERS] Error finalizando:", err);
+    }
   };
 
   return (
@@ -406,46 +544,28 @@ const trackingConfig = (estado) => {
 
         {activeTab === "home" && (
           <>
-            <section style={{ marginBottom: "12px" }}>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button
-                  className="lista-btn-ingresar"
-                  onClick={() => setEstadoCadete("disponible")}
-                  disabled={estadoCadete === "disponible"}
-                >
-                  Disponible
-                </button>
+            <h2 className="home-main-title">Inicio</h2>
 
-                <button
-                  className="simular-pedido-btn"
-                  onClick={() => setEstadoCadete("en_pedido")}
-                  disabled={estadoCadete === "en_pedido"}
-                >
-                  En pedido
-                </button>
+            {pedidoActivo ? (
+              <CardPedidoActivo pedido={pedidoActivo} onFinalizar={finalizarPedido} />
+            ) : (
+              <div className="pedido-activo-placeholder">
+                <p className="home-main-text">
+                  Sin pedido activo. Si te ofertan uno, aparecerá un modal para aceptar o rechazar.
+                </p>
               </div>
-
-              <p className="lista-texto-secundario" style={{ marginTop: "6px" }}>
-                Estado actual: <strong>{estadoCadete}</strong>
-              </p>
-            </section>
-
-            <section className="simular-section">
-              <button className="simular-pedido-btn" onClick={handleSimularPedido}>
-                Simular pedido asignado
-              </button>
-
-              {mensajePedido && (
-                <p className="simular-pedido-mensaje">{mensajePedido}</p>
-              )}
-            </section>
+            )}
           </>
         )}
 
         {activeTab === "pedidos" && (
           <>
             <h2 className="home-main-title">Pedidos</h2>
-            <p className="home-main-text">Acá listamos pedidos asignados.</p>
+            {pedidoActivo ? (
+              <CardPedidoActivo pedido={pedidoActivo} onFinalizar={finalizarPedido} />
+            ) : (
+              <p className="home-main-text">No tenés pedidos activos.</p>
+            )}
           </>
         )}
 
@@ -466,12 +586,13 @@ const trackingConfig = (estado) => {
 
       <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
 
+      {/* MODAL: solo se muestra si hay pedido ofertado */}
       <ModalPedidoAsignado
-        pedido={pedidoAsignado}
+        pedido={pedidoOfertado}
         segundos={20}
-        onAceptar={handleAceptarPedido}
-        onRechazar={handleRechazarPedido}
-        onTimeout={handleTimeoutPedido}
+        onAceptar={aceptarOferta}
+        onRechazar={(p) => rechazarOferta(p, "rejected")}
+        onTimeout={onTimeoutOferta}
       />
     </div>
   );
