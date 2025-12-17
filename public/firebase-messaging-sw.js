@@ -1,8 +1,8 @@
+// public/firebase-messaging-sw.js
 /* eslint-disable no-undef */
 importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
 
-// ⚠️ MISMA config que tu firebaseConfig
 firebase.initializeApp({
   apiKey: "AIzaSyCc-QMneztyou0qbtnUnAp61ECGZtiAqjo",
   authDomain: "webappcadeteria.firebaseapp.com",
@@ -14,28 +14,31 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Background push (cuando está minimizada/cerrada)
 messaging.onBackgroundMessage((payload) => {
   const title = payload?.notification?.title || "Nuevo pedido";
-  const body = payload?.notification?.body || "Te llegó una oferta de pedido";
-  const data = payload?.data || {};
+  const options = {
+    body: payload?.notification?.body || "Te llegó un pedido",
+    icon: "/pwa-192x192.png",
+    data: payload?.data || {}, // ej: { url: "/?order=..." }
+  };
 
-  self.registration.showNotification(title, {
-    body,
-    icon: "/pwa-192x192.png",   // ajustá a tus icons reales
-    badge: "/pwa-192x192.png",
-    data, // importante: para abrir la app con contexto
-  });
+  self.registration.showNotification(title, options);
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  const url = event.notification?.data?.url || "/";
+
   event.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-      for (const client of list) {
-        if ("focus" in client) return client.focus();
+    (async () => {
+      const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = allClients.find((c) => c.url.includes(self.location.origin));
+      if (existing) {
+        existing.focus();
+        existing.navigate(url);
+      } else {
+        clients.openWindow(url);
       }
-      return clients.openWindow("/");
-    })
+    })()
   );
 });

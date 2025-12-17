@@ -17,7 +17,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
-import { getToken, onMessage } from "firebase/messaging";
+import { getToken, onMessage, isSupported } from "firebase/messaging";
 import { db, messaging } from "../../firebaseconfig";
 
 function Home({ repartidorId, onLogout }) {
@@ -28,13 +28,20 @@ function Home({ repartidorId, onLogout }) {
 
   // GPS UI state
   const [geoStatus, setGeoStatus] = useState("checking");
-  // checking | granted | prompt | denied | unavailable | searching
   const [geoError, setGeoError] = useState(null);
   const [liveCoords, setLiveCoords] = useState(null);
 
   // Pedido ofertado (dispara modal) + pedido activo (se muestra en Home)
   const [pedidoOfertado, setPedidoOfertado] = useState(null);
   const [pedidoActivo, setPedidoActivo] = useState(null);
+
+  // ===== FCM UI state =====
+  const [pushSupported, setPushSupported] = useState(true);
+  const [pushPerm, setPushPerm] = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "default"
+  ); // default | granted | denied
+  const [pushToken, setPushToken] = useState("");
+  const [pushError, setPushError] = useState("");
 
   // refs para no duplicar watchers
   const watchIdRef = useRef(null);
@@ -43,9 +50,7 @@ function Home({ repartidorId, onLogout }) {
 
   // ===== CONFIG TRACKING REAL =====
   const trackingConfig = (estado) => {
-    if (estado === "en_pedido") {
-      return { minMs: 10000, minMeters: 15 };
-    }
+    if (estado === "en_pedido") return { minMs: 10000, minMeters: 15 };
     return { minMs: 5000, minMeters: 10 };
   };
 
@@ -63,10 +68,7 @@ function Home({ repartidorId, onLogout }) {
   };
 
   const writeLocationToFirestore = async (pos, force = false) => {
-    const next = {
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
-    };
+    const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
 
     console.log("📝 [GPS] Intento de envío", {
       force,
@@ -128,41 +130,22 @@ function Home({ repartidorId, onLogout }) {
     console.log("🚀 [GPS] startTracking() llamado");
 
     if (!navigator.geolocation) {
-      console.log("🔴 [GPS] Geolocalización no soportada");
       setGeoStatus("unavailable");
       setGeoError("Este dispositivo no soporta geolocalización.");
       return;
     }
 
-    // Evitar duplicar watchers
-    if (watchIdRef.current != null) {
-      console.log("⚠️ [GPS] Watch ya activo, no se crea otro");
-      return;
-    }
+    if (watchIdRef.current != null) return;
 
     setGeoError(null);
-    setGeoStatus("searching"); // buscando señal GPS
+    setGeoStatus("searching");
 
-    // 1) Primer envío inmediato
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        console.log("📍 [GPS] Posición inicial obtenida", {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        });
-
-        try {
-          setGeoStatus("granted");
-          await writeLocationToFirestore(pos, true); // fuerza primer envío
-          console.log("✅ [GPS] Primera ubicación enviada a Firestore");
-        } catch (e) {
-          console.error("❌ [GPS] Error enviando ubicación inicial", e);
-        }
+        setGeoStatus("granted");
+        await writeLocationToFirestore(pos, true);
       },
       (err) => {
-        console.error("❌ [GPS] Error en getCurrentPosition", err);
-
         if (err.code === 1) {
           setGeoStatus("denied");
           setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
@@ -177,25 +160,12 @@ function Home({ repartidorId, onLogout }) {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
 
-    // 2) Watch continuo
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
-        console.log("🔄 [GPS] watchPosition disparó", {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        });
-
-        try {
-          setGeoStatus("granted");
-          await writeLocationToFirestore(pos, false);
-        } catch (e) {
-          console.error("❌ [GPS] Error en watchPosition → Firestore", e);
-        }
+        setGeoStatus("granted");
+        await writeLocationToFirestore(pos, false);
       },
       (err) => {
-        console.error("❌ [GPS] Error en watchPosition", err);
-
         if (err.code === 1) {
           setGeoStatus("denied");
           setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
@@ -209,25 +179,20 @@ function Home({ repartidorId, onLogout }) {
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
-
-    console.log("✅ [GPS] Watch iniciado con id:", watchIdRef.current);
   };
 
   const stopTracking = () => {
     if (watchIdRef.current != null) {
-      console.log("🛑 [GPS] stopTracking() → clearWatch:", watchIdRef.current);
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
   };
 
-  // ✅ Al entrar a Home, detectar permiso sin pedir nada
+  // ✅ Al entrar a Home, detectar permiso GPS sin pedir nada
   useEffect(() => {
     let cancelled = false;
 
     const checkPermissionAndStart = async () => {
-      console.log("🟡 [GPS] Chequeando permisos de geolocalización");
-
       if (!navigator.geolocation) {
         setGeoStatus("unavailable");
         setGeoError("Este dispositivo no soporta geolocalización.");
@@ -237,8 +202,6 @@ function Home({ repartidorId, onLogout }) {
       if (navigator.permissions?.query) {
         try {
           const perm = await navigator.permissions.query({ name: "geolocation" });
-          console.log("🟢 [GPS] Estado permiso:", perm.state);
-
           if (cancelled) return;
 
           if (perm.state === "granted") {
@@ -252,8 +215,6 @@ function Home({ repartidorId, onLogout }) {
           }
 
           perm.onchange = () => {
-            console.log("🔁 [GPS] Cambio de permiso:", perm.state);
-
             if (perm.state === "granted") {
               setGeoStatus("granted");
               setGeoError(null);
@@ -267,8 +228,7 @@ function Home({ repartidorId, onLogout }) {
               stopTracking();
             }
           };
-        } catch (e) {
-          console.log("⚠️ [GPS] Permissions API falló, dejamos prompt", e);
+        } catch {
           setGeoStatus("prompt");
         }
       } else {
@@ -285,20 +245,17 @@ function Home({ repartidorId, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // cuando cambia estadoCadete, reset de throttles para que impacte rápido
+  // cuando cambia estadoCadete, reset throttles para que impacte rápido
   useEffect(() => {
-    console.log("🔄 [GPS] Cambio estadoCadete:", estadoCadete, "→ reset throttles");
     lastSentAtRef.current = 0;
     lastSentCoordsRef.current = null;
   }, [estadoCadete]);
 
   const requestLocation = () => {
-    console.log("🟠 [GPS] Botón Activar/Reintentar presionado");
     setGeoError(null);
     startTracking();
   };
 
-  // ========= UI Banner ubicación =========
   const renderLocationBanner = () => {
     if (geoStatus === "granted") {
       return (
@@ -351,7 +308,6 @@ function Home({ repartidorId, onLogout }) {
       );
     }
 
-    // prompt
     return (
       <div className="location-banner location-banner-warn">
         <div className="location-texts">
@@ -366,73 +322,194 @@ function Home({ repartidorId, onLogout }) {
   };
 
   // =========================================================
-  // 🔔 FCM: Permiso + Token + Foreground listener
+  // 🔔 FCM: soporte + permiso + token + foreground listener
   // =========================================================
   useEffect(() => {
     if (!repartidorId) return;
 
     let unsubMsg = null;
+    let cancelled = false;
 
     const initFCM = async () => {
       try {
-        if (!("Notification" in window)) {
-          console.log("❌ [FCM] Notification API no soportada");
+        setPushError("");
+
+        const supported = await isSupported().catch(() => false);
+        setPushSupported(supported);
+        if (!supported) {
+          console.log("❌ [FCM] Messaging no soportado en este entorno");
           return;
         }
 
-        const perm = await Notification.requestPermission();
-        console.log("🔔 [FCM] Permiso:", perm);
-        if (perm !== "granted") return;
+        // Estado actual sin pedir permisos
+        const currentPerm =
+          typeof Notification !== "undefined" ? Notification.permission : "default";
+        setPushPerm(currentPerm);
 
-        // ⚠️ tu VAPID
-        const token = await getToken(messaging, {
-          vapidKey:
-            "BEDzaIKrOaZmTFlQ_9zwjNyVAOwLFZJ-Q-xiOe6Oi_UNJhsTS-9PFn2RncLYmHHHvswEVdsuEPuTU-qnMwVMhdI",
-        });
+        // Si ya está granted, sacamos token directo
+        if (currentPerm === "granted") {
+          const token = await getToken(messaging, {
+            vapidKey:
+              "BEDzaIKrOaZmTFlQ_9zwjNyVAOwLFZJ-Q-xiOe6Oi_UNJhsTS-9PFn2RncLYmHHHvswEVdsuEPuTU-qnMwVMhdI",
+          });
 
-        if (!token) {
-          console.log("⚠️ [FCM] No se pudo obtener token");
+          if (!token) {
+            console.log("⚠️ [FCM] No se pudo obtener token");
+            return;
+          }
+
+          if (cancelled) return;
+
+          setPushToken(token);
+
+          await setDoc(
+            doc(db, "ubicacionesCadetes", repartidorId),
+            {
+              cadeteId: repartidorId,
+              fcmToken: token,
+              fcmUpdatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          console.log("✅ [FCM] Token guardado en Firestore");
+
+          unsubMsg = onMessage(messaging, (payload) => {
+            console.log("📩 [FCM] Mensaje foreground:", payload);
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+          });
+
           return;
         }
 
-        console.log("✅ [FCM] Token:", token);
+        // Si está denied, no podemos re-pedir desde código (Chrome lo bloquea)
+        if (currentPerm === "denied") {
+          console.log("⚠️ [FCM] Permiso notificaciones DENEGADO");
+          return;
+        }
 
-        await setDoc(
-          doc(db, "ubicacionesCadetes", repartidorId),
-          {
-            cadeteId: repartidorId,
-            fcmToken: token,
-            fcmUpdatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-
-        console.log("✅ [FCM] Token guardado en Firestore");
-
-        unsubMsg = onMessage(messaging, (payload) => {
-          console.log("📩 [FCM] Mensaje foreground:", payload);
-          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-          // Si querés, acá podés disparar UI (toast) o refrescar estado
-        });
+        // default: no hacemos nada automático (para no molestar)
+        console.log("ℹ️ [FCM] Permiso en default (no pedimos aún)");
       } catch (e) {
         console.error("❌ [FCM] Error init:", e);
+        setPushError(e?.message || "Error iniciando notificaciones");
       }
     };
 
     initFCM();
 
     return () => {
+      cancelled = true;
       if (typeof unsubMsg === "function") unsubMsg();
     };
   }, [repartidorId]);
+
+  // Botón manual para pedir permiso + token
+  const enablePush = async () => {
+    try {
+      setPushError("");
+
+      const supported = await isSupported().catch(() => false);
+      setPushSupported(supported);
+      if (!supported) {
+        setPushError("Este dispositivo/navegador no soporta notificaciones push.");
+        return;
+      }
+
+      const perm = await Notification.requestPermission();
+      setPushPerm(perm);
+      console.log("🔔 [FCM] Permiso:", perm);
+
+      if (perm !== "granted") {
+        setPushError(
+          perm === "denied"
+            ? "Permiso denegado. Tenés que habilitar notificaciones en Ajustes del navegador."
+            : "Permiso no concedido."
+        );
+        return;
+      }
+
+      const token = await getToken(messaging, {
+        vapidKey:
+          "BEDzaIKrOaZmTFlQ_9zwjNyVAOwLFZJ-Q-xiOe6Oi_UNJhsTS-9PFn2RncLYmHHHvswEVdsuEPuTU-qnMwVMhdI",
+      });
+
+      if (!token) {
+        setPushError("No se pudo obtener el token push.");
+        return;
+      }
+
+      setPushToken(token);
+
+      await setDoc(
+        doc(db, "ubicacionesCadetes", repartidorId),
+        {
+          cadeteId: repartidorId,
+          fcmToken: token,
+          fcmUpdatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      console.log("✅ [FCM] Token guardado en Firestore");
+    } catch (e) {
+      console.error("❌ [FCM] Error enablePush:", e);
+      setPushError(e?.message || "Error habilitando notificaciones");
+    }
+  };
+
+  const renderPushBanner = () => {
+    if (!pushSupported) {
+      return (
+        <div className="location-banner location-banner-error">
+          <div className="location-texts">
+            <span>Este dispositivo no soporta notificaciones push.</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (pushPerm === "granted") {
+      return (
+        <div className="location-banner location-banner-ok">
+          <span>Notificaciones activas ✅</span>
+        </div>
+      );
+    }
+
+    if (pushPerm === "denied") {
+      return (
+        <div className="location-banner location-banner-error">
+          <div className="location-texts">
+            <span>Notificaciones BLOQUEADAS ❌</span>
+            <span className="location-error">
+              Activá notificaciones en Ajustes del navegador (Sitio → Notificaciones).
+            </span>
+            {pushError && <span className="location-error">{pushError}</span>}
+          </div>
+        </div>
+      );
+    }
+
+    // default
+    return (
+      <div className="location-banner location-banner-warn">
+        <div className="location-texts">
+          <span>Activá notificaciones para recibir pedidos aunque la app esté minimizada.</span>
+          {pushError && <span className="location-error">{pushError}</span>}
+        </div>
+        <button className="location-btn" onClick={enablePush}>
+          Activar notificaciones
+        </button>
+      </div>
+    );
+  };
 
   // =========================================================
   // 🔥 LISTENER: detectar si le ofertaron un pedido al repartidor
   // =========================================================
   useEffect(() => {
     if (!repartidorId) return;
-
-    console.log("👂 [ORDERS] Listener ofertados para cadete:", repartidorId);
 
     const q = query(
       collection(db, "orders"),
@@ -451,8 +528,6 @@ function Home({ repartidorId, onLogout }) {
         const docSnap = snap.docs[0];
         const data = { ...docSnap.data(), _docId: docSnap.id };
 
-        console.log("📩 [ORDERS] Oferta recibida:", data.id || docSnap.id);
-
         setPedidoOfertado((prev) => {
           const prevId = prev?.id || prev?._docId;
           const nextId = data.id || data._docId;
@@ -460,9 +535,7 @@ function Home({ repartidorId, onLogout }) {
           return data;
         });
       },
-      (err) => {
-        console.error("❌ [ORDERS] Error listener ofertados:", err);
-      }
+      (err) => console.error("❌ [ORDERS] Error listener ofertados:", err)
     );
 
     return () => unsub();
@@ -519,7 +592,6 @@ function Home({ repartidorId, onLogout }) {
 
       setPedidoOfertado(null);
       setEstadoCadete("en_pedido");
-      console.log("✅ [ORDERS] Oferta aceptada:", orderDocId);
     } catch (err) {
       console.error("❌ [ORDERS] Error aceptando oferta:", err);
     }
@@ -532,13 +604,12 @@ function Home({ repartidorId, onLogout }) {
     try {
       await updateDoc(doc(db, "orders", orderDocId), {
         status: "pendiente",
-        "offer.state": reason, // rejected | expired
+        "offer.state": reason,
         "offer.respondedAt": serverTimestamp(),
       });
 
       setPedidoOfertado(null);
       setEstadoCadete("disponible");
-      console.log("✅ [ORDERS] Oferta rechazada:", orderDocId, reason);
     } catch (err) {
       console.error("❌ [ORDERS] Error rechazando oferta:", err);
     }
@@ -563,7 +634,6 @@ function Home({ repartidorId, onLogout }) {
 
       setEstadoCadete("disponible");
       setPedidoActivo(null);
-      console.log("✅ [ORDERS] Pedido finalizado:", orderDocId);
     } catch (err) {
       console.error("❌ [ORDERS] Error finalizando:", err);
     }
@@ -581,6 +651,7 @@ function Home({ repartidorId, onLogout }) {
 
       <main className="home-main">
         {renderLocationBanner()}
+        {renderPushBanner()}
 
         {activeTab === "home" && (
           <>
