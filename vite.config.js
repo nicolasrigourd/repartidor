@@ -7,11 +7,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "prompt",
-      injectRegister: "auto",
-      includeAssets: ["favicon.ico", "apple-touch-icon.png"],
       strategies: "injectManifest",
       srcDir: "src",
       filename: "sw.js",
+      includeAssets: ["favicon.ico", "apple-touch-icon.png"],
 
       manifest: {
         name: "Cadetería Repartidor",

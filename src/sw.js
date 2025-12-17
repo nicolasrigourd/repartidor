@@ -2,6 +2,9 @@
 import { initializeApp } from "firebase/app";
 import { getMessaging, onBackgroundMessage } from "firebase/messaging/sw";
 
+// 🔴 OBLIGATORIO para injectManifest
+self.__WB_MANIFEST;
+
 const firebaseConfig = {
   apiKey: "AIzaSyCc-QMneztyou0qbtnUnAp61ECGZtiAqjo",
   authDomain: "webappcadeteria.firebaseapp.com",
@@ -14,6 +17,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const messaging = getMessaging(app);
 
+// 🔔 Push en background
 onBackgroundMessage(messaging, (payload) => {
   self.registration.showNotification(
     payload?.notification?.title || "Nuevo pedido",
@@ -25,6 +29,7 @@ onBackgroundMessage(messaging, (payload) => {
   );
 });
 
+// 👉 Click en notificación
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = event.notification?.data?.url || "/";
