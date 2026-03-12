@@ -32,7 +32,8 @@ function Home({ repartidorId, onLogout }) {
   const [geoError, setGeoError] = useState(null);
   const [liveCoords, setLiveCoords] = useState(null);
 
-  const [trackingEnabled, setTrackingEnabled] = useState(true);
+  // null = todavía no cargamos preferencia guardada
+  const [trackingEnabled, setTrackingEnabled] = useState(null);
 
   const [pedidoOfertado, setPedidoOfertado] = useState(null);
   const [pedidoActivo, setPedidoActivo] = useState(null);
@@ -46,9 +47,40 @@ function Home({ repartidorId, onLogout }) {
   const lastSentAtRef = useRef(0);
   const lastSentCoordsRef = useRef(null);
 
+  const getTrackingStorageKey = () => `cadete_tracking_enabled_${repartidorId}`;
+
   useEffect(() => {
     estadoCadeteRef.current = estadoCadete;
   }, [estadoCadete]);
+
+  // ===============================
+  // Cargar preferencia persistida
+  // ===============================
+  useEffect(() => {
+    if (!repartidorId) return;
+
+    try {
+      const saved = localStorage.getItem(getTrackingStorageKey());
+      if (saved === null) {
+        setTrackingEnabled(true); // por defecto, primera vez
+      } else {
+        setTrackingEnabled(saved === "true");
+      }
+    } catch (err) {
+      console.error("❌ Error leyendo preferencia tracking:", err);
+      setTrackingEnabled(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repartidorId]);
+
+  const persistTrackingPreference = (value) => {
+    if (!repartidorId) return;
+    try {
+      localStorage.setItem(getTrackingStorageKey(), String(value));
+    } catch (err) {
+      console.error("❌ Error guardando preferencia tracking:", err);
+    }
+  };
 
   // disponible = menos frecuente / en pedido = más frecuente
   const trackingConfig = (estado) => {
@@ -196,7 +228,7 @@ function Home({ repartidorId, onLogout }) {
   const startTracking = () => {
     console.log("🚀 [GPS] startTracking() llamado");
 
-    if (!trackingEnabled) {
+    if (trackingEnabled !== true) {
       console.log("⚠️ [GPS] Tracking desactivado por el usuario");
       return;
     }
@@ -247,7 +279,11 @@ function Home({ repartidorId, onLogout }) {
             "gps_unavailable"
           );
         } else {
-          await handleGeoUnavailable("prompt", "No pudimos obtener ubicación. Reintentá.", "gps_prompt");
+          await handleGeoUnavailable(
+            "prompt",
+            "No pudimos obtener ubicación. Reintentá.",
+            "gps_prompt"
+          );
         }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -285,7 +321,11 @@ function Home({ repartidorId, onLogout }) {
             "gps_unavailable"
           );
         } else {
-          await handleGeoUnavailable("prompt", "No pudimos obtener ubicación. Reintentá.", "gps_prompt");
+          await handleGeoUnavailable(
+            "prompt",
+            "No pudimos obtener ubicación. Reintentá.",
+            "gps_prompt"
+          );
         }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -294,7 +334,12 @@ function Home({ repartidorId, onLogout }) {
     console.log("✅ [GPS] Watch iniciado con id:", watchIdRef.current);
   };
 
+  // ===============================
+  // Permisos + inicio automático solo si trackingEnabled === true
+  // ===============================
   useEffect(() => {
+    if (trackingEnabled === null) return;
+
     let cancelled = false;
 
     const checkPermissionAndStart = async () => {
@@ -306,9 +351,10 @@ function Home({ repartidorId, onLogout }) {
         return;
       }
 
-      if (!trackingEnabled) {
+      if (trackingEnabled !== true) {
         setGeoStatus("prompt");
         setGeoError(null);
+        stopTracking();
         return;
       }
 
@@ -337,7 +383,7 @@ function Home({ repartidorId, onLogout }) {
           perm.onchange = async () => {
             console.log("🔁 [GPS] Cambio de permiso:", perm.state);
 
-            if (!trackingEnabled) return;
+            if (trackingEnabled !== true) return;
 
             if (perm.state === "granted") {
               setGeoStatus("granted");
@@ -389,6 +435,8 @@ function Home({ repartidorId, onLogout }) {
   }, [estadoCadete]);
 
   useEffect(() => {
+    if (trackingEnabled === null) return;
+
     const syncEstadoActual = async () => {
       if (!repartidorId) return;
 
@@ -398,8 +446,11 @@ function Home({ repartidorId, onLogout }) {
           {
             cadeteId: repartidorId,
             estadoCadete,
-            availableForOffers: geoStatus === "granted" && estadoCadete === "disponible",
-            trackingActive: geoStatus === "granted",
+            availableForOffers:
+              trackingEnabled === true &&
+              geoStatus === "granted" &&
+              estadoCadete === "disponible",
+            trackingActive: trackingEnabled === true && geoStatus === "granted",
             gpsStatus: geoStatus,
             updatedAt: serverTimestamp(),
           },
@@ -411,17 +462,56 @@ function Home({ repartidorId, onLogout }) {
     };
 
     syncEstadoActual();
-  }, [estadoCadete, geoStatus, repartidorId]);
+  }, [estadoCadete, geoStatus, repartidorId, trackingEnabled]);
+
+  // ===============================
+  // Re-sincronizar al volver al frente
+  // ===============================
+  useEffect(() => {
+    if (trackingEnabled !== true) return;
+
+    const resyncTracking = () => {
+      console.log("🔄 [GPS] Re-sincronizando tracking por foco/visibilidad");
+      stopTracking();
+      lastSentAtRef.current = 0;
+      lastSentCoordsRef.current = null;
+      startTracking();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        resyncTracking();
+      }
+    };
+
+    const onFocus = () => resyncTracking();
+    const onOnline = () => resyncTracking();
+    const onPageShow = () => resyncTracking();
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("pageshow", onPageShow);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackingEnabled]);
 
   const requestLocation = () => {
     console.log("🟠 [GPS] Botón Activar/Reintentar presionado");
+    persistTrackingPreference(true);
     setTrackingEnabled(true);
     setGeoError(null);
-    startTracking();
   };
 
   const disableLocation = async () => {
     console.log("🛑 [GPS] Botón Desactivar ubicación presionado");
+    persistTrackingPreference(false);
     setTrackingEnabled(false);
     setGeoStatus("prompt");
     setGeoError(null);
@@ -439,6 +529,7 @@ function Home({ repartidorId, onLogout }) {
 
   const handleLogout = async () => {
     try {
+      persistTrackingPreference(false);
       stopTracking();
       setLiveCoords(null);
 
@@ -455,7 +546,17 @@ function Home({ repartidorId, onLogout }) {
   };
 
   const renderLocationBanner = () => {
-    if (geoStatus === "granted" && trackingEnabled) {
+    if (trackingEnabled === null) {
+      return (
+        <div className="location-banner location-banner-warn">
+          <div className="location-texts">
+            <span>Preparando estado de ubicación…</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (geoStatus === "granted" && trackingEnabled === true) {
       return (
         <div className="location-banner location-banner-ok">
           <div className="location-texts">
@@ -837,4 +938,4 @@ function Home({ repartidorId, onLogout }) {
   );
 }
 
-export default Home;
+export default Home; 
