@@ -62,7 +62,7 @@ function Home({ repartidorId, onLogout }) {
     try {
       const saved = localStorage.getItem(getTrackingStorageKey());
       if (saved === null) {
-        setTrackingEnabled(true); // por defecto, primera vez
+        setTrackingEnabled(true);
       } else {
         setTrackingEnabled(saved === "true");
       }
@@ -82,7 +82,9 @@ function Home({ repartidorId, onLogout }) {
     }
   };
 
-  // disponible = menos frecuente / en pedido = más frecuente
+  // ===============================
+  // Config tracking
+  // ===============================
   const trackingConfig = (estado) => {
     if (estado === "en_pedido") {
       return { minMs: 5000, minMeters: 10 };
@@ -103,6 +105,9 @@ function Home({ repartidorId, onLogout }) {
     return 2 * R * Math.asin(Math.sqrt(x));
   };
 
+  // ===============================
+  // Firestore presence
+  // ===============================
   const markCadeteInactive = async ({
     gpsStatus = "disabled",
     reason = "tracking_stopped",
@@ -225,10 +230,13 @@ function Home({ repartidorId, onLogout }) {
     });
   };
 
-  const startTracking = () => {
-    console.log("🚀 [GPS] startTracking() llamado");
+  const startTracking = (forceFromUser = false) => {
+    console.log("🚀 [GPS] startTracking() llamado", {
+      forceFromUser,
+      trackingEnabled,
+    });
 
-    if (trackingEnabled !== true) {
+    if (!forceFromUser && trackingEnabled !== true) {
       console.log("⚠️ [GPS] Tracking desactivado por el usuario");
       return;
     }
@@ -335,7 +343,7 @@ function Home({ repartidorId, onLogout }) {
   };
 
   // ===============================
-  // Permisos + inicio automático solo si trackingEnabled === true
+  // Permisos + inicio automático
   // ===============================
   useEffect(() => {
     if (trackingEnabled === null) return;
@@ -367,7 +375,7 @@ function Home({ repartidorId, onLogout }) {
 
           if (perm.state === "granted") {
             setGeoStatus("granted");
-            startTracking();
+            startTracking(false);
           } else if (perm.state === "denied") {
             setGeoStatus("denied");
             setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
@@ -388,7 +396,10 @@ function Home({ repartidorId, onLogout }) {
             if (perm.state === "granted") {
               setGeoStatus("granted");
               setGeoError(null);
-              startTracking();
+              stopTracking();
+              lastSentAtRef.current = 0;
+              lastSentCoordsRef.current = null;
+              startTracking(false);
             } else if (perm.state === "denied") {
               setGeoStatus("denied");
               setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
@@ -465,7 +476,7 @@ function Home({ repartidorId, onLogout }) {
   }, [estadoCadete, geoStatus, repartidorId, trackingEnabled]);
 
   // ===============================
-  // Re-sincronizar al volver al frente
+  // Re-sync al volver al frente
   // ===============================
   useEffect(() => {
     if (trackingEnabled !== true) return;
@@ -475,7 +486,7 @@ function Home({ repartidorId, onLogout }) {
       stopTracking();
       lastSentAtRef.current = 0;
       lastSentCoordsRef.current = null;
-      startTracking();
+      startTracking(false);
     };
 
     const onVisibility = () => {
@@ -504,9 +515,19 @@ function Home({ repartidorId, onLogout }) {
 
   const requestLocation = () => {
     console.log("🟠 [GPS] Botón Activar/Reintentar presionado");
+
     persistTrackingPreference(true);
     setTrackingEnabled(true);
     setGeoError(null);
+    setGeoStatus("searching");
+
+    stopTracking();
+    lastSentAtRef.current = 0;
+    lastSentCoordsRef.current = null;
+
+    setTimeout(() => {
+      startTracking(true);
+    }, 0);
   };
 
   const disableLocation = async () => {
@@ -633,6 +654,9 @@ function Home({ repartidorId, onLogout }) {
     );
   };
 
+  // ===============================
+  // Notifications
+  // ===============================
   const enableNotifications = async () => {
     try {
       setNotifError(null);
@@ -725,6 +749,9 @@ function Home({ repartidorId, onLogout }) {
     return () => unsubMsg();
   }, [repartidorId]);
 
+  // ===============================
+  // Oferta de pedido
+  // ===============================
   useEffect(() => {
     if (!repartidorId) return;
 
@@ -764,6 +791,9 @@ function Home({ repartidorId, onLogout }) {
     return () => unsub();
   }, [repartidorId]);
 
+  // ===============================
+  // Pedido activo
+  // ===============================
   useEffect(() => {
     if (!repartidorId) return;
 
@@ -938,4 +968,4 @@ function Home({ repartidorId, onLogout }) {
   );
 }
 
-export default Home; 
+export default Home;
