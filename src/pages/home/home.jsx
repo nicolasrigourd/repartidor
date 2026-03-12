@@ -15,6 +15,7 @@ import {
   where,
   onSnapshot,
   updateDoc,
+  deleteField,
 } from "firebase/firestore";
 
 import { getToken, onMessage } from "firebase/messaging";
@@ -23,36 +24,38 @@ import { db, messaging } from "../../firebaseconfig";
 function Home({ repartidorId, onLogout }) {
   const [activeTab, setActiveTab] = useState("home");
 
-  // Estado del cadete (lo cambia el flow real)
-  const [estadoCadete, setEstadoCadete] = useState("disponible"); // disponible | en_pedido
+  const [estadoCadete, setEstadoCadete] = useState("disponible");
+  const estadoCadeteRef = useRef("disponible");
 
-  // GPS UI state
   const [geoStatus, setGeoStatus] = useState("checking");
   // checking | granted | prompt | denied | unavailable | searching
   const [geoError, setGeoError] = useState(null);
   const [liveCoords, setLiveCoords] = useState(null);
 
-  // Pedido ofertado (dispara modal) + pedido activo (se muestra en Home)
+  const [trackingEnabled, setTrackingEnabled] = useState(true);
+
   const [pedidoOfertado, setPedidoOfertado] = useState(null);
   const [pedidoActivo, setPedidoActivo] = useState(null);
 
-  // ✅ FCM UI (solo para mostrar/forzar habilitar)
   const [notifPerm, setNotifPerm] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "unsupported"
   );
   const [notifError, setNotifError] = useState(null);
 
-  // refs para no duplicar watchers
   const watchIdRef = useRef(null);
   const lastSentAtRef = useRef(0);
   const lastSentCoordsRef = useRef(null);
 
-  // ===== CONFIG TRACKING REAL =====
+  useEffect(() => {
+    estadoCadeteRef.current = estadoCadete;
+  }, [estadoCadete]);
+
+  // disponible = menos frecuente / en pedido = más frecuente
   const trackingConfig = (estado) => {
     if (estado === "en_pedido") {
-      return { minMs: 10000, minMeters: 15 };
+      return { minMs: 5000, minMeters: 10 };
     }
-    return { minMs: 5000, minMeters: 10 };
+    return { minMs: 15000, minMeters: 25 };
   };
 
   const distanceMeters = (a, b) => {
@@ -68,22 +71,55 @@ function Home({ repartidorId, onLogout }) {
     return 2 * R * Math.asin(Math.sqrt(x));
   };
 
+  const markCadeteInactive = async ({
+    gpsStatus = "disabled",
+    reason = "tracking_stopped",
+    preserveEstado = false,
+  } = {}) => {
+    if (!repartidorId) return;
+
+    try {
+      await setDoc(
+        doc(db, "ubicacionesCadetes", repartidorId),
+        {
+          cadeteId: repartidorId,
+          estadoCadete: preserveEstado ? estadoCadeteRef.current : "disponible",
+          trackingActive: false,
+          availableForOffers: false,
+          gpsStatus,
+          presenceReason: reason,
+          lat: deleteField(),
+          lng: deleteField(),
+          accuracy: deleteField(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      console.log("🟡 [GPS] Cadete marcado como inactivo en Firestore");
+    } catch (err) {
+      console.error("❌ [GPS] Error marcando cadete inactivo:", err);
+    }
+  };
+
   const writeLocationToFirestore = async (pos, force = false) => {
     const next = {
       lat: pos.coords.latitude,
       lng: pos.coords.longitude,
     };
 
+    const estadoActual = estadoCadeteRef.current;
+
     console.log("📝 [GPS] Intento de envío", {
       force,
-      estadoCadete,
+      estadoCadete: estadoActual,
       coords: next,
       accuracy: pos.coords.accuracy,
     });
 
     setLiveCoords(next);
 
-    const { minMs, minMeters } = trackingConfig(estadoCadete);
+    const { minMs, minMeters } = trackingConfig(estadoActual);
     const now = Date.now();
 
     if (!force) {
@@ -115,7 +151,11 @@ function Home({ repartidorId, onLogout }) {
         doc(db, "ubicacionesCadetes", repartidorId),
         {
           cadeteId: repartidorId,
-          estadoCadete,
+          estadoCadete: estadoActual,
+          trackingActive: true,
+          availableForOffers: estadoActual === "disponible",
+          gpsStatus: "granted",
+          presenceReason: "tracking_ok",
           lat: next.lat,
           lng: next.lng,
           accuracy: pos.coords.accuracy ?? null,
@@ -130,11 +170,38 @@ function Home({ repartidorId, onLogout }) {
     }
   };
 
+  const stopTracking = () => {
+    if (watchIdRef.current != null) {
+      console.log("🛑 [GPS] stopTracking() → clearWatch:", watchIdRef.current);
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+  };
+
+  const handleGeoUnavailable = async (nextStatus, message, reason = "gps_unavailable") => {
+    setGeoStatus(nextStatus);
+    setGeoError(message);
+    setLiveCoords(null);
+    stopTracking();
+    lastSentAtRef.current = 0;
+    lastSentCoordsRef.current = null;
+
+    await markCadeteInactive({
+      gpsStatus: nextStatus,
+      reason,
+      preserveEstado: true,
+    });
+  };
+
   const startTracking = () => {
     console.log("🚀 [GPS] startTracking() llamado");
 
+    if (!trackingEnabled) {
+      console.log("⚠️ [GPS] Tracking desactivado por el usuario");
+      return;
+    }
+
     if (!navigator.geolocation) {
-      console.log("🔴 [GPS] Geolocalización no soportada");
       setGeoStatus("unavailable");
       setGeoError("Este dispositivo no soporta geolocalización.");
       return;
@@ -164,18 +231,23 @@ function Home({ repartidorId, onLogout }) {
           console.error("❌ [GPS] Error enviando ubicación inicial", e);
         }
       },
-      (err) => {
+      async (err) => {
         console.error("❌ [GPS] Error en getCurrentPosition", err);
 
         if (err.code === 1) {
-          setGeoStatus("denied");
-          setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
+          await handleGeoUnavailable(
+            "denied",
+            "Permiso denegado. Habilitá Ubicación en permisos del sitio.",
+            "permission_denied"
+          );
         } else if (err.code === 2) {
-          setGeoStatus("unavailable");
-          setGeoError("Ubicación no disponible. ¿Tenés el GPS apagado?");
+          await handleGeoUnavailable(
+            "unavailable",
+            "Ubicación no disponible. ¿Tenés el GPS apagado?",
+            "gps_unavailable"
+          );
         } else {
-          setGeoStatus("prompt");
-          setGeoError("No pudimos obtener ubicación. Reintentá.");
+          await handleGeoUnavailable("prompt", "No pudimos obtener ubicación. Reintentá.", "gps_prompt");
         }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -191,37 +263,35 @@ function Home({ repartidorId, onLogout }) {
 
         try {
           setGeoStatus("granted");
+          setGeoError(null);
           await writeLocationToFirestore(pos, false);
         } catch (e) {
           console.error("❌ [GPS] Error en watchPosition → Firestore", e);
         }
       },
-      (err) => {
+      async (err) => {
         console.error("❌ [GPS] Error en watchPosition", err);
 
         if (err.code === 1) {
-          setGeoStatus("denied");
-          setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
+          await handleGeoUnavailable(
+            "denied",
+            "Permiso denegado. Habilitá Ubicación en permisos del sitio.",
+            "permission_denied"
+          );
         } else if (err.code === 2) {
-          setGeoStatus("unavailable");
-          setGeoError("Ubicación no disponible. Encendé el GPS del teléfono.");
+          await handleGeoUnavailable(
+            "unavailable",
+            "Ubicación no disponible. Encendé el GPS del teléfono.",
+            "gps_unavailable"
+          );
         } else {
-          setGeoStatus("prompt");
-          setGeoError("No pudimos obtener ubicación. Reintentá.");
+          await handleGeoUnavailable("prompt", "No pudimos obtener ubicación. Reintentá.", "gps_prompt");
         }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
 
     console.log("✅ [GPS] Watch iniciado con id:", watchIdRef.current);
-  };
-
-  const stopTracking = () => {
-    if (watchIdRef.current != null) {
-      console.log("🛑 [GPS] stopTracking() → clearWatch:", watchIdRef.current);
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
   };
 
   useEffect(() => {
@@ -233,6 +303,12 @@ function Home({ repartidorId, onLogout }) {
       if (!navigator.geolocation) {
         setGeoStatus("unavailable");
         setGeoError("Este dispositivo no soporta geolocalización.");
+        return;
+      }
+
+      if (!trackingEnabled) {
+        setGeoStatus("prompt");
+        setGeoError(null);
         return;
       }
 
@@ -249,12 +325,19 @@ function Home({ repartidorId, onLogout }) {
           } else if (perm.state === "denied") {
             setGeoStatus("denied");
             setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
+            await markCadeteInactive({
+              gpsStatus: "denied",
+              reason: "permission_denied",
+              preserveEstado: true,
+            });
           } else {
             setGeoStatus("prompt");
           }
 
-          perm.onchange = () => {
+          perm.onchange = async () => {
             console.log("🔁 [GPS] Cambio de permiso:", perm.state);
+
+            if (!trackingEnabled) return;
 
             if (perm.state === "granted") {
               setGeoStatus("granted");
@@ -263,10 +346,22 @@ function Home({ repartidorId, onLogout }) {
             } else if (perm.state === "denied") {
               setGeoStatus("denied");
               setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
+              setLiveCoords(null);
               stopTracking();
+              await markCadeteInactive({
+                gpsStatus: "denied",
+                reason: "permission_denied",
+                preserveEstado: true,
+              });
             } else {
               setGeoStatus("prompt");
+              setLiveCoords(null);
               stopTracking();
+              await markCadeteInactive({
+                gpsStatus: "prompt",
+                reason: "permission_prompt",
+                preserveEstado: true,
+              });
             }
           };
         } catch (e) {
@@ -285,7 +380,7 @@ function Home({ repartidorId, onLogout }) {
       stopTracking();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [trackingEnabled]);
 
   useEffect(() => {
     console.log("🔄 [GPS] Cambio estadoCadete:", estadoCadete, "→ reset throttles");
@@ -293,24 +388,91 @@ function Home({ repartidorId, onLogout }) {
     lastSentCoordsRef.current = null;
   }, [estadoCadete]);
 
+  useEffect(() => {
+    const syncEstadoActual = async () => {
+      if (!repartidorId) return;
+
+      try {
+        await setDoc(
+          doc(db, "ubicacionesCadetes", repartidorId),
+          {
+            cadeteId: repartidorId,
+            estadoCadete,
+            availableForOffers: geoStatus === "granted" && estadoCadete === "disponible",
+            trackingActive: geoStatus === "granted",
+            gpsStatus: geoStatus,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.error("❌ [GPS] Error sincronizando estado del cadete:", err);
+      }
+    };
+
+    syncEstadoActual();
+  }, [estadoCadete, geoStatus, repartidorId]);
+
   const requestLocation = () => {
     console.log("🟠 [GPS] Botón Activar/Reintentar presionado");
+    setTrackingEnabled(true);
     setGeoError(null);
     startTracking();
   };
 
+  const disableLocation = async () => {
+    console.log("🛑 [GPS] Botón Desactivar ubicación presionado");
+    setTrackingEnabled(false);
+    setGeoStatus("prompt");
+    setGeoError(null);
+    setLiveCoords(null);
+    stopTracking();
+    lastSentAtRef.current = 0;
+    lastSentCoordsRef.current = null;
+
+    await markCadeteInactive({
+      gpsStatus: "disabled",
+      reason: "disabled_by_user",
+      preserveEstado: true,
+    });
+  };
+
+  const handleLogout = async () => {
+    try {
+      stopTracking();
+      setLiveCoords(null);
+
+      await markCadeteInactive({
+        gpsStatus: "logged_out",
+        reason: "logout",
+        preserveEstado: false,
+      });
+    } catch (e) {
+      console.error("❌ [GPS] Error al limpiar ubicación antes de salir:", e);
+    } finally {
+      onLogout?.();
+    }
+  };
+
   const renderLocationBanner = () => {
-    if (geoStatus === "granted") {
+    if (geoStatus === "granted" && trackingEnabled) {
       return (
         <div className="location-banner location-banner-ok">
-          <span>Ubicación activa ✅</span>
-          {liveCoords ? (
-            <span className="location-coords">
-              ({liveCoords.lat.toFixed(4)}, {liveCoords.lng.toFixed(4)})
-            </span>
-          ) : (
-            <span className="location-coords">(buscando señal…)</span>
-          )}
+          <div className="location-texts">
+            <span>Ubicación activa ✅</span>
+            <span className="location-subtext">Podrás recibir y gestionar pedidos.</span>
+            {liveCoords ? (
+              <span className="location-coords">
+                ({liveCoords.lat.toFixed(4)}, {liveCoords.lng.toFixed(4)})
+              </span>
+            ) : (
+              <span className="location-coords">(buscando señal…)</span>
+            )}
+          </div>
+
+          <button className="location-btn location-btn-danger" onClick={disableLocation}>
+            Desactivar ubicación
+          </button>
         </div>
       );
     }
@@ -330,9 +492,12 @@ function Home({ repartidorId, onLogout }) {
         <div className="location-banner location-banner-error">
           <div className="location-texts">
             <span>{geoError || "Ubicación no disponible. Encendé el GPS."}</span>
+            <span className="location-subtext">
+              Necesitamos tu ubicación para asignación y seguimiento de pedidos.
+            </span>
           </div>
           <button className="location-btn" onClick={requestLocation}>
-            Reintentar
+            Activar ubicación
           </button>
         </div>
       );
@@ -343,6 +508,9 @@ function Home({ repartidorId, onLogout }) {
         <div className="location-banner location-banner-error">
           <div className="location-texts">
             <span>{geoError || "Permiso de ubicación denegado."}</span>
+            <span className="location-subtext">
+              Necesitamos tu ubicación para asignación y seguimiento de pedidos.
+            </span>
           </div>
           <button className="location-btn" onClick={requestLocation}>
             Reintentar
@@ -354,7 +522,7 @@ function Home({ repartidorId, onLogout }) {
     return (
       <div className="location-banner location-banner-warn">
         <div className="location-texts">
-          <span>Necesitamos tu ubicación para asignación de pedidos y seguimiento.</span>
+          <span>Necesitamos tu ubicación para asignación y seguimiento de pedidos.</span>
           {geoError && <span className="location-error">{geoError}</span>}
         </div>
         <button className="location-btn" onClick={requestLocation}>
@@ -364,9 +532,6 @@ function Home({ repartidorId, onLogout }) {
     );
   };
 
-  // =========================================================
-  // 🔔 FCM: NO pedir permiso siempre + registrar SW /fcm-sw.js
-  // =========================================================
   const enableNotifications = async () => {
     try {
       setNotifError(null);
@@ -385,7 +550,6 @@ function Home({ repartidorId, onLogout }) {
         return;
       }
 
-      // ✅ registrar SW de FCM (separado del SW de la PWA)
       const reg = await navigator.serviceWorker.register("/fcm-sw.js", { scope: "/fcm/" });
 
       const token = await getToken(messaging, {
@@ -423,7 +587,6 @@ function Home({ repartidorId, onLogout }) {
       setNotifPerm(Notification.permission);
     }
 
-    // ✅ Si ya estaban granted, solo aseguramos token (sin prompt)
     const autoInitIfGranted = async () => {
       try {
         if (!("Notification" in window)) return;
@@ -461,9 +624,6 @@ function Home({ repartidorId, onLogout }) {
     return () => unsubMsg();
   }, [repartidorId]);
 
-  // =========================================================
-  // 🔥 LISTENER: detectar si le ofertaron un pedido al repartidor
-  // =========================================================
   useEffect(() => {
     if (!repartidorId) return;
 
@@ -503,9 +663,6 @@ function Home({ repartidorId, onLogout }) {
     return () => unsub();
   }, [repartidorId]);
 
-  // =========================================================
-  // 🔥 LISTENER: pedido activo (status asignado) para este cadete
-  // =========================================================
   useEffect(() => {
     if (!repartidorId) return;
 
@@ -520,6 +677,7 @@ function Home({ repartidorId, onLogout }) {
       (snap) => {
         if (snap.empty) {
           setPedidoActivo(null);
+          setEstadoCadete("disponible");
           return;
         }
 
@@ -534,9 +692,6 @@ function Home({ repartidorId, onLogout }) {
     return () => unsub();
   }, [repartidorId]);
 
-  // =========================================================
-  // ✅ Acciones sobre oferta
-  // =========================================================
   const resolveOrderDocId = (pedido) => pedido?._docId || pedido?.id;
 
   const aceptarOferta = async (pedido) => {
@@ -583,9 +738,6 @@ function Home({ repartidorId, onLogout }) {
     await rechazarOferta(pedido, "expired");
   };
 
-  // =========================================================
-  // ✅ Finalizar pedido (simple dev)
-  // =========================================================
   const finalizarPedido = async (pedido) => {
     const orderDocId = resolveOrderDocId(pedido);
     if (!orderDocId) return;
@@ -612,13 +764,12 @@ function Home({ repartidorId, onLogout }) {
         title="ID:"
         highlight={repartidorId}
         rightLabel="Salir"
-        onRightClick={onLogout}
+        onRightClick={handleLogout}
       />
 
       <main className="home-main">
         {renderLocationBanner()}
 
-        {/* ✅ BOTÓN SOLO SI NOTIFICACIONES NO ESTÁN OK */}
         {notifPerm !== "granted" && notifPerm !== "unsupported" && (
           <div className="location-banner location-banner-warn" style={{ marginTop: 10 }}>
             <div className="location-texts">

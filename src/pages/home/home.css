@@ -394,3 +394,19 @@
   font-size: 0.85rem;
   color: #e5e7eb;
 }
+
+.location-subtext {
+  font-size: 0.78rem;
+  color: inherit;
+  opacity: 0.9;
+}
+
+.location-btn-danger {
+  background: rgba(239, 68, 68, 0.9);
+  color: #fff;
+}
+
+.location-btn-danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 1);
+  filter: none;
+}
