@@ -366,6 +366,64 @@
 }
 
 /* ===============================
+   HOLD TO CONFIRM BUTTON
+   =============================== */
+
+.driver-hold-button {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  touch-action: none;
+  user-select: none;
+}
+
+.driver-hold-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgba(34, 197, 94, 0.95);
+  transform-origin: left center;
+}
+
+.driver-hold-button--holding .driver-hold-fill {
+  animation: driverHoldFill var(--hold-ms) linear forwards;
+}
+
+.driver-hold-label {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.driver-hold-button--holding {
+  color: #041008;
+}
+
+.driver-hold-button--holding .driver-hold-label::after {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 5px rgba(4, 16, 8, 0.12);
+}
+
+@keyframes driverHoldFill {
+  from {
+    width: 0%;
+  }
+
+  to {
+    width: 100%;
+  }
+}
+
+/* ===============================
    MINI CARDS
    =============================== */
 

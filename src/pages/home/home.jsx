@@ -19,6 +19,77 @@ import {
 
 import { db } from "../../firebaseconfig";
 
+function HoldToConfirmButton({
+  className = "",
+  onConfirm,
+  holdMs = 3000,
+  children,
+  holdingText = "Mantené presionado...",
+}) {
+  const timeoutRef = useRef(null);
+  const [isHolding, setIsHolding] = useState(false);
+
+  const clearHold = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
+    setIsHolding(false);
+  };
+
+  const handlePointerDown = (event) => {
+    event.preventDefault();
+
+    if (timeoutRef.current) return;
+
+    if (event.currentTarget.setPointerCapture) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    setIsHolding(true);
+
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      setIsHolding(false);
+      onConfirm?.();
+    }, holdMs);
+  };
+
+  const handlePointerUp = () => {
+    clearHold();
+  };
+
+  const handlePointerLeave = () => {
+    clearHold();
+  };
+
+  useEffect(() => {
+    return () => clearHold();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <button
+      type="button"
+      className={`${className} driver-hold-button ${
+        isHolding ? "driver-hold-button--holding" : ""
+      }`}
+      style={{ "--hold-ms": `${holdMs}ms` }}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
+      onClick={(event) => event.preventDefault()}
+    >
+      <span className="driver-hold-fill" aria-hidden="true" />
+      <span className="driver-hold-label">
+        {isHolding ? holdingText : children}
+      </span>
+    </button>
+  );
+}
+
 function Home({ repartidorId, user, onLogout }) {
   const ficha = user?.ficha || user || {};
   const nombreCompleto = `${ficha.nombre || ""} ${ficha.apellido || ""}`.trim();
@@ -496,9 +567,14 @@ function Home({ repartidorId, user, onLogout }) {
   const renderMainAction = () => {
     if (workStatus === "offline") {
       return (
-        <button className="driver-main-action driver-main-action--go" onClick={handleStartWork}>
-          Empezar a trabajar
-        </button>
+        <HoldToConfirmButton
+          className="driver-main-action driver-main-action--go"
+          onConfirm={handleStartWork}
+          holdMs={3000}
+          holdingText="Mantené presionado..."
+        >
+          Mantener para empezar
+        </HoldToConfirmButton>
       );
     }
 
@@ -527,9 +603,14 @@ function Home({ repartidorId, user, onLogout }) {
     }
 
     return (
-      <button className="driver-main-action driver-main-action--go" onClick={handleStartWork}>
-        Reintentar conexión
-      </button>
+      <HoldToConfirmButton
+        className="driver-main-action driver-main-action--go"
+        onConfirm={handleStartWork}
+        holdMs={3000}
+        holdingText="Mantené presionado..."
+      >
+        Mantener para reconectar
+      </HoldToConfirmButton>
     );
   };
 
