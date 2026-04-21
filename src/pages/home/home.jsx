@@ -1,769 +1,356 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./home.css";
 
-import TopBar from "../../components/topbar/topbar";
 import BottomBar from "../../components/bottombar/bottombar";
 import ModalPedidoAsignado from "../../components/modalpedidoasignado/modalpedidoasignado";
 import CardPedidoActivo from "../../components/cardpedidoactivo/cardpedidoactivo";
 
 import {
-  doc,
-  setDoc,
-  serverTimestamp,
   collection,
-  query,
-  where,
-  onSnapshot,
-  updateDoc,
   deleteField,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
 } from "firebase/firestore";
 
-import { getToken, onMessage } from "firebase/messaging";
-import { db, messaging } from "../../firebaseconfig";
+import { db } from "../../firebaseconfig";
 
-function Home({ repartidorId, onLogout }) {
+function Home({ repartidorId, user, onLogout }) {
+  const ficha = user?.ficha || user || {};
+  const nombreCompleto = `${ficha.nombre || ""} ${ficha.apellido || ""}`.trim();
+
   const [activeTab, setActiveTab] = useState("home");
 
-  const [estadoCadete, setEstadoCadete] = useState("disponible");
-  const estadoCadeteRef = useRef("disponible");
+  const [workStatus, setWorkStatus] = useState("offline");
+  // offline | starting | online | busy | error
 
-  const [geoStatus, setGeoStatus] = useState("checking");
-  // checking | granted | prompt | denied | unavailable | searching
-  const [geoError, setGeoError] = useState(null);
+  const [geoStatus, setGeoStatus] = useState("idle");
+  // idle | searching | granted | denied | unavailable | error
+
+  const [geoError, setGeoError] = useState("");
   const [liveCoords, setLiveCoords] = useState(null);
-
-  // null = todavía no cargamos preferencia guardada
-  const [trackingEnabled, setTrackingEnabled] = useState(null);
 
   const [pedidoOfertado, setPedidoOfertado] = useState(null);
   const [pedidoActivo, setPedidoActivo] = useState(null);
 
-  const [notifPerm, setNotifPerm] = useState(
-    typeof Notification !== "undefined" ? Notification.permission : "unsupported"
-  );
-  const [notifError, setNotifError] = useState(null);
-
   const watchIdRef = useRef(null);
-  const lastSentAtRef = useRef(0);
-  const lastSentCoordsRef = useRef(null);
-
-  const getTrackingStorageKey = () => `cadete_tracking_enabled_${repartidorId}`;
+  const estadoRef = useRef("offline");
 
   useEffect(() => {
-    estadoCadeteRef.current = estadoCadete;
-  }, [estadoCadete]);
+    estadoRef.current = workStatus;
+  }, [workStatus]);
 
-  // ===============================
-  // Cargar preferencia persistida
-  // ===============================
-  useEffect(() => {
-    if (!repartidorId) return;
-
-    try {
-      const saved = localStorage.getItem(getTrackingStorageKey());
-      if (saved === null) {
-        setTrackingEnabled(true);
-      } else {
-        setTrackingEnabled(saved === "true");
-      }
-    } catch (err) {
-      console.error("❌ Error leyendo preferencia tracking:", err);
-      setTrackingEnabled(true);
+  const statusCopy = useMemo(() => {
+    if (workStatus === "busy") {
+      return {
+        label: "En pedido",
+        text: "Tenés un pedido activo en curso.",
+        pill: "Pedido activo",
+      };
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repartidorId]);
 
-  const persistTrackingPreference = (value) => {
-    if (!repartidorId) return;
-    try {
-      localStorage.setItem(getTrackingStorageKey(), String(value));
-    } catch (err) {
-      console.error("❌ Error guardando preferencia tracking:", err);
+    if (workStatus === "online") {
+      return {
+        label: "Disponible",
+        text: "Estás conectado y disponible para recibir pedidos.",
+        pill: "Online",
+      };
     }
+
+    if (workStatus === "starting") {
+      return {
+        label: "Conectando",
+        text: "Estamos activando tu ubicación.",
+        pill: "Buscando GPS",
+      };
+    }
+
+    if (workStatus === "error") {
+      return {
+        label: "Error de conexión",
+        text: geoError || "No pudimos activar tu ubicación.",
+        pill: "Revisar",
+      };
+    }
+
+    return {
+      label: "Desconectado",
+      text: "Tocá empezar para quedar disponible.",
+      pill: "Offline",
+    };
+  }, [workStatus, geoError]);
+
+  const formatMoney = (value) => {
+    const num = Number(value || 0);
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: "ARS",
+      maximumFractionDigits: 0,
+    }).format(num);
   };
 
-  // ===============================
-  // Config tracking
-  // ===============================
-  const trackingConfig = (estado) => {
-    if (estado === "en_pedido") {
-      return { minMs: 5000, minMeters: 10 };
+  const buildPresencePayload = ({
+    trackingActive,
+    availableForOffers,
+    gpsStatus,
+    reason,
+    coords,
+  }) => {
+    const estadoCadete = pedidoActivo ? "en_pedido" : "disponible";
+
+    const base = {
+      cadeteId: repartidorId,
+      repartidorId,
+      estadoCadete,
+      workStatus,
+      trackingActive,
+      availableForOffers,
+      gpsStatus,
+      presenceReason: reason,
+      updatedAt: serverTimestamp(),
+
+      nombre: ficha.nombre || "",
+      apellido: ficha.apellido || "",
+      movilidad: ficha.movilidad || "",
+      sucursal: ficha.sucursal || "",
+      tipoRepartidor: ficha.tipoRepartidor || "",
+      usaApp: ficha.usaApp === true,
+      aptoManejoDinero: ficha.aptoManejoDinero === true,
+      fotoPerfil: ficha.fotoPerfil || "",
+    };
+
+    if (coords) {
+      return {
+        ...base,
+        lat: coords.lat,
+        lng: coords.lng,
+        accuracy: coords.accuracy ?? null,
+      };
     }
-    return { minMs: 15000, minMeters: 25 };
+
+    return {
+      ...base,
+      lat: deleteField(),
+      lng: deleteField(),
+      accuracy: deleteField(),
+    };
   };
 
-  const distanceMeters = (a, b) => {
-    const R = 6371000;
-    const toRad = (v) => (v * Math.PI) / 180;
-    const dLat = toRad(b.lat - a.lat);
-    const dLng = toRad(b.lng - a.lng);
-    const lat1 = toRad(a.lat);
-    const lat2 = toRad(b.lat);
-    const x =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(x));
-  };
-
-  // ===============================
-  // Firestore presence
-  // ===============================
-  const markCadeteInactive = async ({
-    gpsStatus = "disabled",
-    reason = "tracking_stopped",
-    preserveEstado = false,
+  const writePresence = async ({
+    trackingActive = false,
+    availableForOffers = false,
+    gpsStatus = "idle",
+    reason = "manual_update",
+    coords = null,
   } = {}) => {
     if (!repartidorId) return;
 
     try {
       await setDoc(
-        doc(db, "ubicacionesCadetes", repartidorId),
-        {
-          cadeteId: repartidorId,
-          estadoCadete: preserveEstado ? estadoCadeteRef.current : "disponible",
-          trackingActive: false,
-          availableForOffers: false,
+        doc(db, "ubicacionesCadetes", String(repartidorId)),
+        buildPresencePayload({
+          trackingActive,
+          availableForOffers,
           gpsStatus,
-          presenceReason: reason,
-          lat: deleteField(),
-          lng: deleteField(),
-          accuracy: deleteField(),
-          updatedAt: serverTimestamp(),
-        },
+          reason,
+          coords,
+        }),
         { merge: true }
       );
-
-      console.log("🟡 [GPS] Cadete marcado como inactivo en Firestore");
-    } catch (err) {
-      console.error("❌ [GPS] Error marcando cadete inactivo:", err);
+    } catch (error) {
+      console.error("❌ Error escribiendo presencia:", error);
     }
   };
 
-  const writeLocationToFirestore = async (pos, force = false) => {
-    const next = {
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
-    };
-
-    const estadoActual = estadoCadeteRef.current;
-
-    console.log("📝 [GPS] Intento de envío", {
-      force,
-      estadoCadete: estadoActual,
-      coords: next,
-      accuracy: pos.coords.accuracy,
-    });
-
-    setLiveCoords(next);
-
-    const { minMs, minMeters } = trackingConfig(estadoActual);
-    const now = Date.now();
-
-    if (!force) {
-      if (now - lastSentAtRef.current < minMs) {
-        console.log("⏱️ [GPS] Bloqueado por tiempo (throttle)", {
-          elapsedMs: now - lastSentAtRef.current,
-          minMs,
-        });
-        return;
-      }
-
-      if (lastSentCoordsRef.current) {
-        const moved = distanceMeters(lastSentCoordsRef.current, next);
-        if (moved < minMeters) {
-          console.log("📏 [GPS] Bloqueado por distancia", {
-            moved: Number(moved.toFixed(1)),
-            minMeters,
-          });
-          return;
-        }
-      }
-    }
-
-    lastSentAtRef.current = now;
-    lastSentCoordsRef.current = next;
-
-    try {
-      await setDoc(
-        doc(db, "ubicacionesCadetes", repartidorId),
-        {
-          cadeteId: repartidorId,
-          estadoCadete: estadoActual,
-          trackingActive: true,
-          availableForOffers: estadoActual === "disponible",
-          gpsStatus: "granted",
-          presenceReason: "tracking_ok",
-          lat: next.lat,
-          lng: next.lng,
-          accuracy: pos.coords.accuracy ?? null,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      console.log("✅ [GPS] Ubicación guardada en Firestore");
-    } catch (err) {
-      console.error("❌ [GPS] Error Firestore:", err);
-    }
-  };
-
-  const stopTracking = () => {
+  const stopGpsWatch = () => {
     if (watchIdRef.current != null) {
-      console.log("🛑 [GPS] stopTracking() → clearWatch:", watchIdRef.current);
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
   };
 
-  const handleGeoUnavailable = async (nextStatus, message, reason = "gps_unavailable") => {
-    setGeoStatus(nextStatus);
-    setGeoError(message);
+  const markOffline = async (reason = "manual_offline") => {
+    stopGpsWatch();
     setLiveCoords(null);
-    stopTracking();
-    lastSentAtRef.current = 0;
-    lastSentCoordsRef.current = null;
+    setGeoStatus("idle");
+    setGeoError("");
+    setWorkStatus("offline");
 
-    await markCadeteInactive({
-      gpsStatus: nextStatus,
+    await writePresence({
+      trackingActive: false,
+      availableForOffers: false,
+      gpsStatus: "disabled",
       reason,
-      preserveEstado: true,
+      coords: null,
     });
   };
 
-  const startTracking = (forceFromUser = false) => {
-    console.log("🚀 [GPS] startTracking() llamado", {
-      forceFromUser,
-      trackingEnabled,
-    });
-
-    if (!forceFromUser && trackingEnabled !== true) {
-      console.log("⚠️ [GPS] Tracking desactivado por el usuario");
-      return;
-    }
-
+  const handleStartWork = async () => {
     if (!navigator.geolocation) {
       setGeoStatus("unavailable");
       setGeoError("Este dispositivo no soporta geolocalización.");
+      setWorkStatus("error");
+      await writePresence({
+        trackingActive: false,
+        availableForOffers: false,
+        gpsStatus: "unavailable",
+        reason: "geolocation_unavailable",
+      });
       return;
     }
 
-    if (watchIdRef.current != null) {
-      console.log("⚠️ [GPS] Watch ya activo, no se crea otro");
-      return;
-    }
-
-    setGeoError(null);
+    setWorkStatus("starting");
     setGeoStatus("searching");
+    setGeoError("");
+
+    stopGpsWatch();
 
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        console.log("📍 [GPS] Posición inicial obtenida", {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
+      async (position) => {
+        const coords = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        };
+
+        setLiveCoords(coords);
+        setGeoStatus("granted");
+        setWorkStatus(pedidoActivo ? "busy" : "online");
+
+        await writePresence({
+          trackingActive: true,
+          availableForOffers: !pedidoActivo,
+          gpsStatus: "granted",
+          reason: "work_started",
+          coords,
         });
 
-        try {
-          setGeoStatus("granted");
-          await writeLocationToFirestore(pos, true);
-          console.log("✅ [GPS] Primera ubicación enviada a Firestore");
-        } catch (e) {
-          console.error("❌ [GPS] Error enviando ubicación inicial", e);
-        }
-      },
-      async (err) => {
-        console.error("❌ [GPS] Error en getCurrentPosition", err);
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          async (pos) => {
+            const nextCoords = {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+            };
 
-        if (err.code === 1) {
-          await handleGeoUnavailable(
-            "denied",
-            "Permiso denegado. Habilitá Ubicación en permisos del sitio.",
-            "permission_denied"
-          );
-        } else if (err.code === 2) {
-          await handleGeoUnavailable(
-            "unavailable",
-            "Ubicación no disponible. ¿Tenés el GPS apagado?",
-            "gps_unavailable"
-          );
-        } else {
-          await handleGeoUnavailable(
-            "prompt",
-            "No pudimos obtener ubicación. Reintentá.",
-            "gps_prompt"
-          );
-        }
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      async (pos) => {
-        console.log("🔄 [GPS] watchPosition disparó", {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        });
-
-        try {
-          setGeoStatus("granted");
-          setGeoError(null);
-          await writeLocationToFirestore(pos, false);
-        } catch (e) {
-          console.error("❌ [GPS] Error en watchPosition → Firestore", e);
-        }
-      },
-      async (err) => {
-        console.error("❌ [GPS] Error en watchPosition", err);
-
-        if (err.code === 1) {
-          await handleGeoUnavailable(
-            "denied",
-            "Permiso denegado. Habilitá Ubicación en permisos del sitio.",
-            "permission_denied"
-          );
-        } else if (err.code === 2) {
-          await handleGeoUnavailable(
-            "unavailable",
-            "Ubicación no disponible. Encendé el GPS del teléfono.",
-            "gps_unavailable"
-          );
-        } else {
-          await handleGeoUnavailable(
-            "prompt",
-            "No pudimos obtener ubicación. Reintentá.",
-            "gps_prompt"
-          );
-        }
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-
-    console.log("✅ [GPS] Watch iniciado con id:", watchIdRef.current);
-  };
-
-  // ===============================
-  // Permisos + inicio automático
-  // ===============================
-  useEffect(() => {
-    if (trackingEnabled === null) return;
-
-    let cancelled = false;
-
-    const checkPermissionAndStart = async () => {
-      console.log("🟡 [GPS] Chequeando permisos de geolocalización");
-
-      if (!navigator.geolocation) {
-        setGeoStatus("unavailable");
-        setGeoError("Este dispositivo no soporta geolocalización.");
-        return;
-      }
-
-      if (trackingEnabled !== true) {
-        setGeoStatus("prompt");
-        setGeoError(null);
-        stopTracking();
-        return;
-      }
-
-      if (navigator.permissions?.query) {
-        try {
-          const perm = await navigator.permissions.query({ name: "geolocation" });
-          console.log("🟢 [GPS] Estado permiso:", perm.state);
-
-          if (cancelled) return;
-
-          if (perm.state === "granted") {
+            setLiveCoords(nextCoords);
             setGeoStatus("granted");
-            startTracking(false);
-          } else if (perm.state === "denied") {
-            setGeoStatus("denied");
-            setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
-            await markCadeteInactive({
-              gpsStatus: "denied",
-              reason: "permission_denied",
-              preserveEstado: true,
+
+            const isBusy = estadoRef.current === "busy";
+
+            await writePresence({
+              trackingActive: true,
+              availableForOffers: !isBusy,
+              gpsStatus: "granted",
+              reason: isBusy ? "tracking_order" : "tracking_available",
+              coords: nextCoords,
             });
-          } else {
-            setGeoStatus("prompt");
-          }
-
-          perm.onchange = async () => {
-            console.log("🔁 [GPS] Cambio de permiso:", perm.state);
-
-            if (trackingEnabled !== true) return;
-
-            if (perm.state === "granted") {
-              setGeoStatus("granted");
-              setGeoError(null);
-              stopTracking();
-              lastSentAtRef.current = 0;
-              lastSentCoordsRef.current = null;
-              startTracking(false);
-            } else if (perm.state === "denied") {
-              setGeoStatus("denied");
-              setGeoError("Permiso denegado. Habilitá Ubicación en permisos del sitio.");
-              setLiveCoords(null);
-              stopTracking();
-              await markCadeteInactive({
-                gpsStatus: "denied",
-                reason: "permission_denied",
-                preserveEstado: true,
-              });
-            } else {
-              setGeoStatus("prompt");
-              setLiveCoords(null);
-              stopTracking();
-              await markCadeteInactive({
-                gpsStatus: "prompt",
-                reason: "permission_prompt",
-                preserveEstado: true,
-              });
-            }
-          };
-        } catch (e) {
-          console.log("⚠️ [GPS] Permissions API falló, dejamos prompt", e);
-          setGeoStatus("prompt");
-        }
-      } else {
-        setGeoStatus("prompt");
-      }
-    };
-
-    checkPermissionAndStart();
-
-    return () => {
-      cancelled = true;
-      stopTracking();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackingEnabled]);
-
-  useEffect(() => {
-    console.log("🔄 [GPS] Cambio estadoCadete:", estadoCadete, "→ reset throttles");
-    lastSentAtRef.current = 0;
-    lastSentCoordsRef.current = null;
-  }, [estadoCadete]);
-
-  useEffect(() => {
-    if (trackingEnabled === null) return;
-
-    const syncEstadoActual = async () => {
-      if (!repartidorId) return;
-
-      try {
-        await setDoc(
-          doc(db, "ubicacionesCadetes", repartidorId),
-          {
-            cadeteId: repartidorId,
-            estadoCadete,
-            availableForOffers:
-              trackingEnabled === true &&
-              geoStatus === "granted" &&
-              estadoCadete === "disponible",
-            trackingActive: trackingEnabled === true && geoStatus === "granted",
-            gpsStatus: geoStatus,
-            updatedAt: serverTimestamp(),
           },
-          { merge: true }
+          async (error) => {
+            console.error("❌ Error watchPosition:", error);
+
+            const message =
+              error.code === 1
+                ? "Permiso de ubicación denegado."
+                : error.code === 2
+                ? "Ubicación no disponible. Revisá el GPS."
+                : "No pudimos actualizar tu ubicación.";
+
+            setGeoError(message);
+            setGeoStatus(error.code === 1 ? "denied" : "error");
+            setWorkStatus("error");
+
+            await writePresence({
+              trackingActive: false,
+              availableForOffers: false,
+              gpsStatus: error.code === 1 ? "denied" : "error",
+              reason: "gps_watch_error",
+              coords: null,
+            });
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          }
         );
-      } catch (err) {
-        console.error("❌ [GPS] Error sincronizando estado del cadete:", err);
+      },
+      async (error) => {
+        console.error("❌ Error getCurrentPosition:", error);
+
+        const message =
+          error.code === 1
+            ? "Permiso de ubicación denegado. Activá la ubicación para trabajar."
+            : error.code === 2
+            ? "Ubicación no disponible. Encendé el GPS."
+            : "No pudimos obtener tu ubicación.";
+
+        setGeoError(message);
+        setGeoStatus(error.code === 1 ? "denied" : "error");
+        setWorkStatus("error");
+
+        await writePresence({
+          trackingActive: false,
+          availableForOffers: false,
+          gpsStatus: error.code === 1 ? "denied" : "error",
+          reason: "gps_initial_error",
+          coords: null,
+        });
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
       }
-    };
-
-    syncEstadoActual();
-  }, [estadoCadete, geoStatus, repartidorId, trackingEnabled]);
-
-  // ===============================
-  // Re-sync al volver al frente
-  // ===============================
-  useEffect(() => {
-    if (trackingEnabled !== true) return;
-
-    const resyncTracking = () => {
-      console.log("🔄 [GPS] Re-sincronizando tracking por foco/visibilidad");
-      stopTracking();
-      lastSentAtRef.current = 0;
-      lastSentCoordsRef.current = null;
-      startTracking(false);
-    };
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        resyncTracking();
-      }
-    };
-
-    const onFocus = () => resyncTracking();
-    const onOnline = () => resyncTracking();
-    const onPageShow = () => resyncTracking();
-
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("pageshow", onPageShow);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("pageshow", onPageShow);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackingEnabled]);
-
-  const requestLocation = () => {
-    console.log("🟠 [GPS] Botón Activar/Reintentar presionado");
-
-    persistTrackingPreference(true);
-    setTrackingEnabled(true);
-    setGeoError(null);
-    setGeoStatus("searching");
-
-    stopTracking();
-    lastSentAtRef.current = 0;
-    lastSentCoordsRef.current = null;
-
-    setTimeout(() => {
-      startTracking(true);
-    }, 0);
+    );
   };
 
-  const disableLocation = async () => {
-    console.log("🛑 [GPS] Botón Desactivar ubicación presionado");
-    persistTrackingPreference(false);
-    setTrackingEnabled(false);
-    setGeoStatus("prompt");
-    setGeoError(null);
-    setLiveCoords(null);
-    stopTracking();
-    lastSentAtRef.current = 0;
-    lastSentCoordsRef.current = null;
-
-    await markCadeteInactive({
-      gpsStatus: "disabled",
-      reason: "disabled_by_user",
-      preserveEstado: true,
-    });
+  const handleStopWork = async () => {
+    await markOffline("manual_stop_work");
   };
 
   const handleLogout = async () => {
-    try {
-      persistTrackingPreference(false);
-      stopTracking();
-      setLiveCoords(null);
-
-      await markCadeteInactive({
-        gpsStatus: "logged_out",
-        reason: "logout",
-        preserveEstado: false,
-      });
-    } catch (e) {
-      console.error("❌ [GPS] Error al limpiar ubicación antes de salir:", e);
-    } finally {
-      onLogout?.();
-    }
-  };
-
-  const renderLocationBanner = () => {
-    if (trackingEnabled === null) {
-      return (
-        <div className="location-banner location-banner-warn">
-          <div className="location-texts">
-            <span>Preparando estado de ubicación…</span>
-          </div>
-        </div>
-      );
-    }
-
-    if (geoStatus === "granted" && trackingEnabled === true) {
-      return (
-        <div className="location-banner location-banner-ok">
-          <div className="location-texts">
-            <span>Ubicación activa ✅</span>
-            <span className="location-subtext">Podrás recibir y gestionar pedidos.</span>
-            {liveCoords ? (
-              <span className="location-coords">
-                ({liveCoords.lat.toFixed(4)}, {liveCoords.lng.toFixed(4)})
-              </span>
-            ) : (
-              <span className="location-coords">(buscando señal…)</span>
-            )}
-          </div>
-
-          <button className="location-btn location-btn-danger" onClick={disableLocation}>
-            Desactivar ubicación
-          </button>
-        </div>
-      );
-    }
-
-    if (geoStatus === "searching" || geoStatus === "checking") {
-      return (
-        <div className="location-banner location-banner-warn">
-          <div className="location-texts">
-            <span>Buscando señal de ubicación…</span>
-          </div>
-        </div>
-      );
-    }
-
-    if (geoStatus === "unavailable") {
-      return (
-        <div className="location-banner location-banner-error">
-          <div className="location-texts">
-            <span>{geoError || "Ubicación no disponible. Encendé el GPS."}</span>
-            <span className="location-subtext">
-              Necesitamos tu ubicación para asignación y seguimiento de pedidos.
-            </span>
-          </div>
-          <button className="location-btn" onClick={requestLocation}>
-            Activar ubicación
-          </button>
-        </div>
-      );
-    }
-
-    if (geoStatus === "denied") {
-      return (
-        <div className="location-banner location-banner-error">
-          <div className="location-texts">
-            <span>{geoError || "Permiso de ubicación denegado."}</span>
-            <span className="location-subtext">
-              Necesitamos tu ubicación para asignación y seguimiento de pedidos.
-            </span>
-          </div>
-          <button className="location-btn" onClick={requestLocation}>
-            Reintentar
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="location-banner location-banner-warn">
-        <div className="location-texts">
-          <span>Necesitamos tu ubicación para asignación y seguimiento de pedidos.</span>
-          {geoError && <span className="location-error">{geoError}</span>}
-        </div>
-        <button className="location-btn" onClick={requestLocation}>
-          Activar ubicación
-        </button>
-      </div>
-    );
-  };
-
-  // ===============================
-  // Notifications
-  // ===============================
-  const enableNotifications = async () => {
-    try {
-      setNotifError(null);
-
-      if (!("Notification" in window)) {
-        setNotifPerm("unsupported");
-        setNotifError("Este dispositivo no soporta notificaciones.");
-        return;
-      }
-
-      const perm = await Notification.requestPermission();
-      setNotifPerm(perm);
-
-      if (perm !== "granted") {
-        setNotifError("Notificaciones denegadas. Debés habilitarlas en el navegador.");
-        return;
-      }
-
-      const reg = await navigator.serviceWorker.register("/fcm-sw.js", { scope: "/fcm/" });
-
-      const token = await getToken(messaging, {
-        vapidKey:
-          "BEDzaIKrOaZmTFlQ_9zwjNyVAOwLFZJ-Q-xiOe6Oi_UNJhsTS-9PFn2RncLYmHHHvswEVdsuEPuTU-qnMwVMhdI",
-        serviceWorkerRegistration: reg,
-      });
-
-      if (!token) {
-        setNotifError("No se pudo obtener el token push.");
-        return;
-      }
-
-      await setDoc(
-        doc(db, "ubicacionesCadetes", repartidorId),
-        {
-          cadeteId: repartidorId,
-          fcmToken: token,
-          fcmUpdatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      console.log("✅ [FCM] Token guardado");
-    } catch (e) {
-      console.error("❌ [FCM] enableNotifications error:", e);
-      setNotifError("Error configurando notificaciones.");
-    }
+    await markOffline("logout");
+    onLogout?.();
   };
 
   useEffect(() => {
-    if (!repartidorId) return;
-
-    if (typeof Notification !== "undefined") {
-      setNotifPerm(Notification.permission);
+    if (pedidoActivo) {
+      setWorkStatus("busy");
+      writePresence({
+        trackingActive: geoStatus === "granted",
+        availableForOffers: false,
+        gpsStatus,
+        reason: "order_active",
+        coords: liveCoords,
+      });
+    } else if (workStatus === "busy") {
+      setWorkStatus("online");
+      writePresence({
+        trackingActive: geoStatus === "granted",
+        availableForOffers: geoStatus === "granted",
+        gpsStatus,
+        reason: "order_finished_available",
+        coords: liveCoords,
+      });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoActivo]);
 
-    const autoInitIfGranted = async () => {
-      try {
-        if (!("Notification" in window)) return;
-        if (Notification.permission !== "granted") return;
-
-        const reg = await navigator.serviceWorker.register("/fcm-sw.js", { scope: "/fcm/" });
-
-        const token = await getToken(messaging, {
-          vapidKey:
-            "BEDzaIKrOaZmTFlQ_9zwjNyVAOwLFZJ-Q-xiOe6Oi_UNJhsTS-9PFn2RncLYmHHHvswEVdsuEPuTU-qnMwVMhdI",
-          serviceWorkerRegistration: reg,
-        });
-
-        if (!token) return;
-
-        await setDoc(
-          doc(db, "ubicacionesCadetes", repartidorId),
-          { cadeteId: repartidorId, fcmToken: token, fcmUpdatedAt: serverTimestamp() },
-          { merge: true }
-        );
-
-        console.log("✅ [FCM] Token refrescado (granted)");
-      } catch (e) {
-        console.error("❌ [FCM] autoInitIfGranted error:", e);
-      }
-    };
-
-    autoInitIfGranted();
-
-    const unsubMsg = onMessage(messaging, (payload) => {
-      console.log("📩 [FCM] Mensaje foreground:", payload);
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-    });
-
-    return () => unsubMsg();
-  }, [repartidorId]);
-
-  // ===============================
-  // Oferta de pedido
-  // ===============================
   useEffect(() => {
     if (!repartidorId) return;
-
-    console.log("👂 [ORDERS] Listener ofertados para cadete:", repartidorId);
 
     const q = query(
       collection(db, "orders"),
       where("status", "==", "ofertado"),
-      where("offer.cadeteId", "==", repartidorId)
+      where("offer.cadeteId", "==", String(repartidorId))
     );
 
-    const unsub = onSnapshot(
+    const unsubscribe = onSnapshot(
       q,
       (snap) => {
         if (snap.empty) {
@@ -772,56 +359,55 @@ function Home({ repartidorId, onLogout }) {
         }
 
         const docSnap = snap.docs[0];
-        const data = { ...docSnap.data(), _docId: docSnap.id };
-
-        console.log("📩 [ORDERS] Oferta recibida:", data.id || docSnap.id);
-
-        setPedidoOfertado((prev) => {
-          const prevId = prev?.id || prev?._docId;
-          const nextId = data.id || data._docId;
-          if (prevId === nextId) return prev;
-          return data;
+        setPedidoOfertado({
+          ...docSnap.data(),
+          _docId: docSnap.id,
         });
       },
-      (err) => {
-        console.error("❌ [ORDERS] Error listener ofertados:", err);
+      (error) => {
+        console.error("❌ Error escuchando pedidos ofertados:", error);
       }
     );
 
-    return () => unsub();
+    return () => unsubscribe();
   }, [repartidorId]);
 
-  // ===============================
-  // Pedido activo
-  // ===============================
   useEffect(() => {
     if (!repartidorId) return;
 
     const q = query(
       collection(db, "orders"),
       where("status", "==", "asignado"),
-      where("assignedCadeteId", "==", repartidorId)
+      where("assignedCadeteId", "==", String(repartidorId))
     );
 
-    const unsub = onSnapshot(
+    const unsubscribe = onSnapshot(
       q,
       (snap) => {
         if (snap.empty) {
           setPedidoActivo(null);
-          setEstadoCadete("disponible");
           return;
         }
 
         const docSnap = snap.docs[0];
-        const data = { ...docSnap.data(), _docId: docSnap.id };
-        setPedidoActivo(data);
-        setEstadoCadete("en_pedido");
+        setPedidoActivo({
+          ...docSnap.data(),
+          _docId: docSnap.id,
+        });
       },
-      (err) => console.error("❌ [ORDERS] Error listener asignado:", err)
+      (error) => {
+        console.error("❌ Error escuchando pedido activo:", error);
+      }
     );
 
-    return () => unsub();
+    return () => unsubscribe();
   }, [repartidorId]);
+
+  useEffect(() => {
+    return () => {
+      stopGpsWatch();
+    };
+  }, []);
 
   const resolveOrderDocId = (pedido) => pedido?._docId || pedido?.id;
 
@@ -832,17 +418,28 @@ function Home({ repartidorId, onLogout }) {
     try {
       await updateDoc(doc(db, "orders", orderDocId), {
         status: "asignado",
-        assignedCadeteId: repartidorId,
+        assignedCadeteId: String(repartidorId),
         assignedAt: serverTimestamp(),
         "offer.state": "accepted",
         "offer.respondedAt": serverTimestamp(),
       });
 
       setPedidoOfertado(null);
-      setEstadoCadete("en_pedido");
-      console.log("✅ [ORDERS] Oferta aceptada:", orderDocId);
-    } catch (err) {
-      console.error("❌ [ORDERS] Error aceptando oferta:", err);
+      setPedidoActivo({
+        ...pedido,
+        _docId: orderDocId,
+      });
+      setWorkStatus("busy");
+
+      await writePresence({
+        trackingActive: geoStatus === "granted",
+        availableForOffers: false,
+        gpsStatus,
+        reason: "offer_accepted",
+        coords: liveCoords,
+      });
+    } catch (error) {
+      console.error("❌ Error aceptando oferta:", error);
     }
   };
 
@@ -858,15 +455,17 @@ function Home({ repartidorId, onLogout }) {
       });
 
       setPedidoOfertado(null);
-      setEstadoCadete("disponible");
-      console.log("✅ [ORDERS] Oferta rechazada:", orderDocId, reason);
-    } catch (err) {
-      console.error("❌ [ORDERS] Error rechazando oferta:", err);
-    }
-  };
 
-  const onTimeoutOferta = async (pedido) => {
-    await rechazarOferta(pedido, "expired");
+      await writePresence({
+        trackingActive: geoStatus === "granted",
+        availableForOffers: workStatus === "online",
+        gpsStatus,
+        reason: "offer_rejected",
+        coords: liveCoords,
+      });
+    } catch (error) {
+      console.error("❌ Error rechazando oferta:", error);
+    }
   };
 
   const finalizarPedido = async (pedido) => {
@@ -879,80 +478,286 @@ function Home({ repartidorId, onLogout }) {
         finishedAt: serverTimestamp(),
       });
 
-      setEstadoCadete("disponible");
       setPedidoActivo(null);
+      setWorkStatus(geoStatus === "granted" ? "online" : "offline");
 
-      console.log("✅ [ORDERS] Pedido finalizado:", orderDocId);
-    } catch (err) {
-      console.error("❌ [ORDERS] Error finalizando:", err);
+      await writePresence({
+        trackingActive: geoStatus === "granted",
+        availableForOffers: geoStatus === "granted",
+        gpsStatus,
+        reason: "order_finished",
+        coords: liveCoords,
+      });
+    } catch (error) {
+      console.error("❌ Error finalizando pedido:", error);
     }
   };
 
-  return (
-    <div className="home-root">
-      <TopBar
-        showBack={false}
-        title="ID:"
-        highlight={repartidorId}
-        rightLabel="Salir"
-        onRightClick={handleLogout}
-      />
+  const renderMainAction = () => {
+    if (workStatus === "offline") {
+      return (
+        <button className="driver-main-action driver-main-action--go" onClick={handleStartWork}>
+          Empezar a trabajar
+        </button>
+      );
+    }
 
-      <main className="home-main">
-        {renderLocationBanner()}
+    if (workStatus === "starting") {
+      return (
+        <button className="driver-main-action driver-main-action--loading" disabled>
+          Activando GPS...
+        </button>
+      );
+    }
 
-        {notifPerm !== "granted" && notifPerm !== "unsupported" && (
-          <div className="location-banner location-banner-warn" style={{ marginTop: 10 }}>
-            <div className="location-texts">
-              <span>⚠️ Notificaciones desactivadas. Si no las activás, no vas a ver pedidos.</span>
-              {notifError && <span className="location-error">{notifError}</span>}
+    if (workStatus === "online") {
+      return (
+        <button className="driver-main-action driver-main-action--stop" onClick={handleStopWork}>
+          Dejar de trabajar
+        </button>
+      );
+    }
+
+    if (workStatus === "busy") {
+      return (
+        <button className="driver-main-action driver-main-action--busy" disabled>
+          Pedido en curso
+        </button>
+      );
+    }
+
+    return (
+      <button className="driver-main-action driver-main-action--go" onClick={handleStartWork}>
+        Reintentar conexión
+      </button>
+    );
+  };
+
+  const renderHomePanel = () => {
+    return (
+      <>
+        <section className="driver-status-card">
+          <div className="driver-status-top">
+            <span className={`driver-status-dot driver-status-dot--${workStatus}`} />
+            <span>{statusCopy.pill}</span>
+          </div>
+
+          <h1>{statusCopy.label}</h1>
+          <p>{statusCopy.text}</p>
+
+          {renderMainAction()}
+
+          {geoError && <div className="driver-error-box">{geoError}</div>}
+        </section>
+
+        <section className="driver-mini-grid">
+          <article className="driver-mini-card">
+            <span>Nivel</span>
+            <strong>{ficha.nivel || 1}</strong>
+          </article>
+
+          <article className="driver-mini-card">
+            <span>Dinero</span>
+            <strong>{ficha.aptoManejoDinero ? "Apto" : "No apto"}</strong>
+          </article>
+
+          <article className="driver-mini-card">
+            <span>Deuda</span>
+            <strong>{formatMoney(ficha.deudaActual)}</strong>
+          </article>
+
+          <article className="driver-mini-card">
+            <span>Base</span>
+            <strong>{formatMoney(ficha.baseActual)}</strong>
+          </article>
+        </section>
+
+        <section className="driver-bottom-sheet">
+          <div className="driver-sheet-handle" />
+
+          <div className="driver-sheet-header">
+            <div>
+              <h2>Pedido actual</h2>
+              <p>
+                {pedidoActivo
+                  ? "Tenés un pedido asignado."
+                  : workStatus === "online"
+                  ? "Esperando pedidos cercanos."
+                  : "Conectate para recibir pedidos."}
+              </p>
             </div>
-            <button className="location-btn" onClick={enableNotifications}>
-              Activar notificaciones
-            </button>
+          </div>
+
+          {pedidoActivo ? (
+            <CardPedidoActivo pedido={pedidoActivo} onFinalizar={finalizarPedido} />
+          ) : (
+            <div className="driver-empty-order">
+              <div className="driver-empty-icon">↗</div>
+              <strong>Sin pedido activo</strong>
+              <span>
+                Cuando Zeus te asigne un pedido, aparecerá acá con los datos de origen,
+                destino y acciones.
+              </span>
+            </div>
+          )}
+        </section>
+      </>
+    );
+  };
+
+  const renderPedidosPanel = () => {
+    return (
+      <section className="driver-bottom-sheet driver-bottom-sheet--full">
+        <div className="driver-sheet-handle" />
+        <div className="driver-sheet-header">
+          <div>
+            <h2>Pedidos</h2>
+            <p>Gestioná tu pedido activo.</p>
+          </div>
+        </div>
+
+        {pedidoActivo ? (
+          <CardPedidoActivo pedido={pedidoActivo} onFinalizar={finalizarPedido} />
+        ) : (
+          <div className="driver-empty-order">
+            <div className="driver-empty-icon">□</div>
+            <strong>No tenés pedidos activos</strong>
+            <span>Cuando aceptes o recibas un pedido, aparecerá en esta sección.</span>
           </div>
         )}
+      </section>
+    );
+  };
 
-        {activeTab === "home" && (
-          <>
-            <h2 className="home-main-title">Inicio</h2>
+  const renderBilleteraPanel = () => {
+    return (
+      <section className="driver-bottom-sheet driver-bottom-sheet--full">
+        <div className="driver-sheet-handle" />
+        <div className="driver-sheet-header">
+          <div>
+            <h2>Billetera</h2>
+            <p>Resumen económico del repartidor.</p>
+          </div>
+        </div>
 
-            {pedidoActivo ? (
-              <CardPedidoActivo pedido={pedidoActivo} onFinalizar={finalizarPedido} />
-            ) : (
-              <div className="pedido-activo-placeholder">
-                <p className="home-main-text">
-                  Sin pedido activo. Si te ofertan uno, aparecerá un modal para aceptar o rechazar.
-                </p>
-              </div>
-            )}
-          </>
-        )}
+        <div className="driver-wallet-grid">
+          <article>
+            <span>Dinero disponible</span>
+            <strong>{formatMoney(ficha.dineroDisponible)}</strong>
+          </article>
+          <article>
+            <span>Deuda actual</span>
+            <strong>{formatMoney(ficha.deudaActual)}</strong>
+          </article>
+          <article>
+            <span>Multa actual</span>
+            <strong>{formatMoney(ficha.multaActual)}</strong>
+          </article>
+          <article>
+            <span>Base actual</span>
+            <strong>{formatMoney(ficha.baseActual)}</strong>
+          </article>
+        </div>
+      </section>
+    );
+  };
 
-        {activeTab === "pedidos" && (
-          <>
-            <h2 className="home-main-title">Pedidos</h2>
-            {pedidoActivo ? (
-              <CardPedidoActivo pedido={pedidoActivo} onFinalizar={finalizarPedido} />
-            ) : (
-              <p className="home-main-text">No tenés pedidos activos.</p>
-            )}
-          </>
-        )}
+  const renderPerfilPanel = () => {
+    return (
+      <section className="driver-bottom-sheet driver-bottom-sheet--full">
+        <div className="driver-sheet-handle" />
+        <div className="driver-sheet-header">
+          <div>
+            <h2>Perfil</h2>
+            <p>Ficha del repartidor logueado.</p>
+          </div>
+        </div>
 
-        {activeTab === "billetera" && (
-          <>
-            <h2 className="home-main-title">Billetera</h2>
-            <p className="home-main-text">Acá van cobros y liquidaciones.</p>
-          </>
-        )}
+        <div className="driver-profile-list">
+          <div>
+            <span>ID</span>
+            <strong>{ficha.id || repartidorId}</strong>
+          </div>
+          <div>
+            <span>Nombre</span>
+            <strong>{nombreCompleto || "Repartidor"}</strong>
+          </div>
+          <div>
+            <span>Movilidad</span>
+            <strong>{ficha.movilidad || "-"}</strong>
+          </div>
+          <div>
+            <span>Sucursal</span>
+            <strong>{ficha.sucursal || "-"}</strong>
+          </div>
+          <div>
+            <span>Tipo</span>
+            <strong>{ficha.tipoRepartidor || "-"}</strong>
+          </div>
+          <div>
+            <span>Celular</span>
+            <strong>{ficha.celular || "-"}</strong>
+          </div>
+        </div>
 
-        {activeTab === "perfil" && (
-          <>
-            <h2 className="home-main-title">Perfil</h2>
-            <p className="home-main-text">Datos y configuración del repartidor.</p>
-          </>
-        )}
+        <button className="driver-logout-btn" onClick={handleLogout}>
+          Cerrar sesión
+        </button>
+      </section>
+    );
+  };
+
+  return (
+    <div className="driver-root">
+      <main className="driver-main">
+        <section className="driver-map-stage">
+          <div className="driver-map-grid" />
+          <div className="driver-map-glow driver-map-glow--one" />
+          <div className="driver-map-glow driver-map-glow--two" />
+          <div className="driver-route-line driver-route-line--one" />
+          <div className="driver-route-line driver-route-line--two" />
+
+          <div className="driver-location-marker">
+            <span />
+          </div>
+
+          <header className="driver-floating-header">
+            <div className="driver-avatar">
+              {ficha.fotoPerfil ? (
+                <img src={ficha.fotoPerfil} alt={nombreCompleto || "Repartidor"} />
+              ) : (
+                <span>{String(ficha.nombre || "R").charAt(0).toUpperCase()}</span>
+              )}
+            </div>
+
+            <div className="driver-header-info">
+              <strong>{nombreCompleto || "Repartidor"}</strong>
+              <span>
+                ID {ficha.id || repartidorId} · {ficha.movilidad || "Movilidad"} ·{" "}
+                {ficha.sucursal || "Sucursal"}
+              </span>
+            </div>
+
+            <button className="driver-header-logout" onClick={handleLogout}>
+              Salir
+            </button>
+          </header>
+
+          <div className="driver-map-chip driver-map-chip--left">
+            GPS: {geoStatus === "granted" ? "Activo" : "Inactivo"}
+          </div>
+
+          <div className="driver-map-chip driver-map-chip--right">
+            {liveCoords ? "Ubicación enviada" : "Sin señal"}
+          </div>
+        </section>
+
+        <div className="driver-content">
+          {activeTab === "home" && renderHomePanel()}
+          {activeTab === "pedidos" && renderPedidosPanel()}
+          {activeTab === "billetera" && renderBilleteraPanel()}
+          {activeTab === "perfil" && renderPerfilPanel()}
+        </div>
       </main>
 
       <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
@@ -961,8 +766,8 @@ function Home({ repartidorId, onLogout }) {
         pedido={pedidoOfertado}
         segundos={20}
         onAceptar={aceptarOferta}
-        onRechazar={(p) => rechazarOferta(p, "rejected")}
-        onTimeout={onTimeoutOferta}
+        onRechazar={(pedido) => rechazarOferta(pedido, "rejected")}
+        onTimeout={(pedido) => rechazarOferta(pedido, "expired")}
       />
     </div>
   );
