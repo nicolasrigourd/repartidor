@@ -10,7 +10,7 @@ import {
   where,
 } from "firebase/firestore";
 
-import Login from "./pages/Login/Login";
+import Login from "./pages/login/login";
 import Home from "./pages/home/home";
 import PwaUpdatePrompt from "./components/pwaupdate/pwaupdate";
 import { db } from "./firebaseconfig";
