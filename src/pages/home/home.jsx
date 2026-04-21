@@ -19,8 +19,16 @@ import {
 
 import { db } from "../../firebaseconfig";
 
+const GEO_OPTIONS = {
+  enableHighAccuracy: true,
+  timeout: 15000,
+  maximumAge: 0,
+};
+
 function HoldToConfirmButton({
   className = "",
+  onStartHold,
+  onCancelHold,
   onConfirm,
   holdMs = 3000,
   children,
@@ -36,6 +44,7 @@ function HoldToConfirmButton({
     }
 
     setIsHolding(false);
+    onCancelHold?.();
   };
 
   const handlePointerDown = (event) => {
@@ -48,6 +57,13 @@ function HoldToConfirmButton({
     }
 
     setIsHolding(true);
+
+    /**
+     * IMPORTANTE:
+     * Esto se ejecuta inmediatamente dentro del gesto real del usuario.
+     * Así Android/Chrome puede mostrar el cartel clásico de permiso/GPS.
+     */
+    onStartHold?.();
 
     timeoutRef.current = setTimeout(() => {
       timeoutRef.current = null;
@@ -110,6 +126,17 @@ function Home({ repartidorId, user, onLogout }) {
 
   const watchIdRef = useRef(null);
   const estadoRef = useRef("offline");
+
+  /**
+   * Guarda una solicitud inicial de GPS hecha al comenzar a presionar.
+   * Sirve para que el permiso/cartel de Android se dispare dentro del gesto real.
+   */
+  const gpsPrimeRef = useRef({
+    status: "idle",
+    promise: null,
+    position: null,
+    error: null,
+  });
 
   useEffect(() => {
     estadoRef.current = workStatus;
@@ -251,6 +278,13 @@ function Home({ repartidorId, user, onLogout }) {
     setGeoError("");
     setWorkStatus("offline");
 
+    gpsPrimeRef.current = {
+      status: "idle",
+      promise: null,
+      position: null,
+      error: null,
+    };
+
     await writePresence({
       trackingActive: false,
       availableForOffers: false,
@@ -258,6 +292,160 @@ function Home({ repartidorId, user, onLogout }) {
       reason,
       coords: null,
     });
+  };
+
+  const getPositionPromise = () => {
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, GEO_OPTIONS);
+    });
+  };
+
+  const primeGpsPermissionRequest = () => {
+    if (!navigator.geolocation) return;
+
+    if (gpsPrimeRef.current.status === "pending") return;
+
+    console.log("[DRIVER_GPS] Pre-solicitando ubicación por gesto del usuario...");
+
+    const promise = getPositionPromise();
+
+    gpsPrimeRef.current = {
+      status: "pending",
+      promise,
+      position: null,
+      error: null,
+    };
+
+    promise
+      .then((position) => {
+        console.log("[DRIVER_GPS] Pre-solicitud GPS exitosa:", position.coords);
+
+        gpsPrimeRef.current = {
+          status: "success",
+          promise: null,
+          position,
+          error: null,
+        };
+      })
+      .catch((error) => {
+        console.error("[DRIVER_GPS] Error en pre-solicitud GPS:", error);
+
+        gpsPrimeRef.current = {
+          status: "error",
+          promise: null,
+          position: null,
+          error,
+        };
+      });
+  };
+
+  const handleInitialGpsError = async (error) => {
+    console.error("[DRIVER_GPS] Error getCurrentPosition:", error);
+
+    let message = "No pudimos obtener tu ubicación.";
+    let nextStatus = "error";
+    let reason = "gps_initial_error";
+
+    if (error.code === 1) {
+      message =
+        "Permiso de ubicación denegado. Aceptá el permiso de ubicación para poder trabajar.";
+      nextStatus = "denied";
+      reason = "gps_initial_permission_denied";
+    }
+
+    if (error.code === 2) {
+      message =
+        "Ubicación no disponible. Activá el GPS o los servicios de ubicación del celular y volvé a intentar.";
+      nextStatus = "unavailable";
+      reason = "gps_initial_position_unavailable";
+    }
+
+    if (error.code === 3) {
+      message =
+        "No pudimos obtener la ubicación a tiempo. Activá el GPS, esperá unos segundos y volvé a intentar.";
+      nextStatus = "error";
+      reason = "gps_initial_timeout";
+    }
+
+    setGeoError(message);
+    setGeoStatus(nextStatus);
+    setWorkStatus("error");
+
+    await writePresence({
+      trackingActive: false,
+      availableForOffers: false,
+      gpsStatus: nextStatus,
+      reason,
+      coords: null,
+    });
+  };
+
+  const startGpsWatch = () => {
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const nextCoords = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        };
+
+        console.log("[DRIVER_GPS] Ubicación actualizada:", nextCoords);
+
+        setLiveCoords(nextCoords);
+        setGeoStatus("granted");
+
+        const isBusy = estadoRef.current === "busy";
+
+        await writePresence({
+          trackingActive: true,
+          availableForOffers: !isBusy,
+          gpsStatus: "granted",
+          reason: isBusy ? "tracking_order" : "tracking_available",
+          coords: nextCoords,
+        });
+      },
+      async (error) => {
+        console.error("[DRIVER_GPS] Error watchPosition:", error);
+
+        let message = "No pudimos actualizar tu ubicación.";
+        let nextStatus = "error";
+        let reason = "gps_watch_error";
+
+        if (error.code === 1) {
+          message =
+            "Permiso de ubicación denegado. Activá la ubicación desde los permisos del navegador o de la app.";
+          nextStatus = "denied";
+          reason = "gps_watch_permission_denied";
+        }
+
+        if (error.code === 2) {
+          message =
+            "Ubicación no disponible. Activá el GPS o los servicios de ubicación del celular y volvé a intentar.";
+          nextStatus = "unavailable";
+          reason = "gps_watch_position_unavailable";
+        }
+
+        if (error.code === 3) {
+          message =
+            "No pudimos actualizar la ubicación a tiempo. Activá el GPS, esperá unos segundos y volvé a intentar.";
+          nextStatus = "error";
+          reason = "gps_watch_timeout";
+        }
+
+        setGeoError(message);
+        setGeoStatus(nextStatus);
+        setWorkStatus("error");
+
+        await writePresence({
+          trackingActive: false,
+          availableForOffers: false,
+          gpsStatus: nextStatus,
+          reason,
+          coords: null,
+        });
+      },
+      GEO_OPTIONS
+    );
   };
 
   const handleStartWork = async () => {
@@ -282,146 +470,73 @@ function Home({ repartidorId, user, onLogout }) {
 
     stopGpsWatch();
 
-    console.log("[DRIVER_GPS] Solicitando ubicación al dispositivo...");
+    console.log("[DRIVER_GPS] Confirmando inicio de trabajo...");
 
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const coords = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        };
+    let position = null;
 
-        console.log("[DRIVER_GPS] Ubicación inicial obtenida:", coords);
-
-        setLiveCoords(coords);
-        setGeoStatus("granted");
-        setWorkStatus(pedidoActivo ? "busy" : "online");
-
-        await writePresence({
-          trackingActive: true,
-          availableForOffers: !pedidoActivo,
-          gpsStatus: "granted",
-          reason: "work_started",
-          coords,
-        });
-
-        watchIdRef.current = navigator.geolocation.watchPosition(
-          async (pos) => {
-            const nextCoords = {
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-              accuracy: pos.coords.accuracy,
-            };
-
-            console.log("[DRIVER_GPS] Ubicación actualizada:", nextCoords);
-
-            setLiveCoords(nextCoords);
-            setGeoStatus("granted");
-
-            const isBusy = estadoRef.current === "busy";
-
-            await writePresence({
-              trackingActive: true,
-              availableForOffers: !isBusy,
-              gpsStatus: "granted",
-              reason: isBusy ? "tracking_order" : "tracking_available",
-              coords: nextCoords,
-            });
-          },
-          async (error) => {
-            console.error("[DRIVER_GPS] Error watchPosition:", error);
-
-            let message = "No pudimos actualizar tu ubicación.";
-            let nextStatus = "error";
-            let reason = "gps_watch_error";
-
-            if (error.code === 1) {
-              message =
-                "Permiso de ubicación denegado. Activá la ubicación desde los permisos del navegador o de la app.";
-              nextStatus = "denied";
-              reason = "gps_watch_permission_denied";
-            }
-
-            if (error.code === 2) {
-              message =
-                "Ubicación no disponible. Activá el GPS o los servicios de ubicación del celular y volvé a intentar.";
-              nextStatus = "unavailable";
-              reason = "gps_watch_position_unavailable";
-            }
-
-            if (error.code === 3) {
-              message =
-                "No pudimos actualizar la ubicación a tiempo. Activá el GPS, esperá unos segundos y volvé a intentar.";
-              nextStatus = "error";
-              reason = "gps_watch_timeout";
-            }
-
-            setGeoError(message);
-            setGeoStatus(nextStatus);
-            setWorkStatus("error");
-
-            await writePresence({
-              trackingActive: false,
-              availableForOffers: false,
-              gpsStatus: nextStatus,
-              reason,
-              coords: null,
-            });
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0,
-          }
-        );
-      },
-      async (error) => {
-        console.error("[DRIVER_GPS] Error getCurrentPosition:", error);
-
-        let message = "No pudimos obtener tu ubicación.";
-        let nextStatus = "error";
-        let reason = "gps_initial_error";
-
-        if (error.code === 1) {
-          message =
-            "Permiso de ubicación denegado. Aceptá el permiso de ubicación para poder trabajar.";
-          nextStatus = "denied";
-          reason = "gps_initial_permission_denied";
-        }
-
-        if (error.code === 2) {
-          message =
-            "Ubicación no disponible. Activá el GPS o los servicios de ubicación del celular y volvé a intentar.";
-          nextStatus = "unavailable";
-          reason = "gps_initial_position_unavailable";
-        }
-
-        if (error.code === 3) {
-          message =
-            "No pudimos obtener la ubicación a tiempo. Activá el GPS, esperá unos segundos y volvé a intentar.";
-          nextStatus = "error";
-          reason = "gps_initial_timeout";
-        }
-
-        setGeoError(message);
-        setGeoStatus(nextStatus);
-        setWorkStatus("error");
-
-        await writePresence({
-          trackingActive: false,
-          availableForOffers: false,
-          gpsStatus: nextStatus,
-          reason,
-          coords: null,
-        });
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0,
+    try {
+      if (gpsPrimeRef.current.status === "success") {
+        position = gpsPrimeRef.current.position;
+      } else if (gpsPrimeRef.current.status === "pending") {
+        position = await gpsPrimeRef.current.promise;
+      } else {
+        console.log("[DRIVER_GPS] Solicitando ubicación al confirmar...");
+        position = await getPositionPromise();
       }
-    );
+    } catch (error) {
+      await handleInitialGpsError(error);
+      return;
+    }
+
+    if (!position) {
+      await handleInitialGpsError({
+        code: 2,
+        message: "No se recibió posición inicial.",
+      });
+      return;
+    }
+
+    const coords = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      accuracy: position.coords.accuracy,
+    };
+
+    console.log("[DRIVER_GPS] Ubicación inicial obtenida:", coords);
+
+    gpsPrimeRef.current = {
+      status: "idle",
+      promise: null,
+      position: null,
+      error: null,
+    };
+
+    setLiveCoords(coords);
+    setGeoStatus("granted");
+    setWorkStatus(pedidoActivo ? "busy" : "online");
+
+    await writePresence({
+      trackingActive: true,
+      availableForOffers: !pedidoActivo,
+      gpsStatus: "granted",
+      reason: "work_started",
+      coords,
+    });
+
+    startGpsWatch();
+  };
+
+  const handleCancelHoldStart = () => {
+    /**
+     * Si el usuario suelta antes de los 3 segundos, no lo conectamos.
+     * Pero no cancelamos la solicitud GPS porque el navegador no permite abortar
+     * getCurrentPosition de forma confiable. Simplemente ignoramos el resultado
+     * hasta que vuelva a mantener presionado y confirme.
+     */
+    if (workStatus === "offline") {
+      setGeoStatus("idle");
+      setGeoError("");
+    }
   };
 
   const handleStopWork = async () => {
@@ -613,6 +728,8 @@ function Home({ repartidorId, user, onLogout }) {
       return (
         <HoldToConfirmButton
           className="driver-main-action driver-main-action--go"
+          onStartHold={primeGpsPermissionRequest}
+          onCancelHold={handleCancelHoldStart}
           onConfirm={handleStartWork}
           holdMs={3000}
           holdingText="Activando GPS..."
@@ -652,6 +769,8 @@ function Home({ repartidorId, user, onLogout }) {
     return (
       <HoldToConfirmButton
         className="driver-main-action driver-main-action--go"
+        onStartHold={primeGpsPermissionRequest}
+        onCancelHold={handleCancelHoldStart}
         onConfirm={handleStartWork}
         holdMs={3000}
         holdingText="Solicitando ubicación..."
