@@ -260,24 +260,6 @@ function Home({ repartidorId, user, onLogout }) {
     });
   };
 
-  const checkGeolocationPermission = async () => {
-    if (!navigator.permissions?.query) {
-      return "unknown";
-    }
-
-    try {
-      const permission = await navigator.permissions.query({
-        name: "geolocation",
-      });
-
-      return permission.state;
-      // "granted" | "prompt" | "denied"
-    } catch (error) {
-      console.warn("⚠️ No se pudo consultar permiso de geolocalización:", error);
-      return "unknown";
-    }
-  };
-
   const handleStartWork = async () => {
     if (!navigator.geolocation) {
       setGeoStatus("unavailable");
@@ -294,33 +276,13 @@ function Home({ repartidorId, user, onLogout }) {
       return;
     }
 
-    const permissionState = await checkGeolocationPermission();
-
-    console.log("[DRIVER_GPS] Estado permiso geolocalización:", permissionState);
-
-    if (permissionState === "denied") {
-      setGeoStatus("denied");
-      setGeoError(
-        "El permiso de ubicación está denegado en el navegador o en la app. Activá la ubicación desde los permisos del navegador/aplicación y volvé a intentar."
-      );
-      setWorkStatus("error");
-
-      await writePresence({
-        trackingActive: false,
-        availableForOffers: false,
-        gpsStatus: "denied",
-        reason: "geolocation_permission_denied_before_request",
-        coords: null,
-      });
-
-      return;
-    }
-
     setWorkStatus("starting");
     setGeoStatus("searching");
     setGeoError("");
 
     stopGpsWatch();
+
+    console.log("[DRIVER_GPS] Solicitando ubicación al dispositivo...");
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
@@ -376,21 +338,21 @@ function Home({ repartidorId, user, onLogout }) {
 
             if (error.code === 1) {
               message =
-                "El permiso de ubicación fue denegado. Revisá los permisos del navegador o de la app.";
+                "Permiso de ubicación denegado. Activá la ubicación desde los permisos del navegador o de la app.";
               nextStatus = "denied";
               reason = "gps_watch_permission_denied";
             }
 
             if (error.code === 2) {
               message =
-                "Ubicación no disponible. Activá el GPS o los servicios de ubicación del dispositivo.";
+                "Ubicación no disponible. Activá el GPS o los servicios de ubicación del celular y volvé a intentar.";
               nextStatus = "unavailable";
               reason = "gps_watch_position_unavailable";
             }
 
             if (error.code === 3) {
               message =
-                "La búsqueda de ubicación demoró demasiado. Verificá que el GPS esté activo y volvé a intentar.";
+                "No pudimos actualizar la ubicación a tiempo. Activá el GPS, esperá unos segundos y volvé a intentar.";
               nextStatus = "error";
               reason = "gps_watch_timeout";
             }
@@ -423,14 +385,14 @@ function Home({ repartidorId, user, onLogout }) {
 
         if (error.code === 1) {
           message =
-            "El permiso de ubicación fue denegado. Revisá los permisos del navegador o de la app y volvé a intentar.";
+            "Permiso de ubicación denegado. Aceptá el permiso de ubicación para poder trabajar.";
           nextStatus = "denied";
           reason = "gps_initial_permission_denied";
         }
 
         if (error.code === 2) {
           message =
-            "Ubicación no disponible. Activá el GPS o los servicios de ubicación del dispositivo y volvé a intentar.";
+            "Ubicación no disponible. Activá el GPS o los servicios de ubicación del celular y volvé a intentar.";
           nextStatus = "unavailable";
           reason = "gps_initial_position_unavailable";
         }
