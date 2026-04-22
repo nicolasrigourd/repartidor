@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./home.css";
 
 import BottomBar from "../../components/bottombar/bottombar";
-import ModalPedidoAsignado from "../../components/modalpedidoasignado/modalpedidoasignado";
 import CardPedidoActivo from "../../components/cardpedidoactivo/cardpedidoactivo";
+import DriverHeatMap from "../../components/driverheatmap/DriverHeatMap";
+import DriverActionSheet from "../../components/driveractionsheet/DriverActionSheet";
 
 import {
   collection,
@@ -58,11 +59,6 @@ function HoldToConfirmButton({
 
     setIsHolding(true);
 
-    /**
-     * IMPORTANTE:
-     * Esto se ejecuta inmediatamente dentro del gesto real del usuario.
-     * Así Android/Chrome puede mostrar el cartel clásico de permiso/GPS.
-     */
     onStartHold?.();
 
     timeoutRef.current = setTimeout(() => {
@@ -113,11 +109,7 @@ function Home({ repartidorId, user, onLogout }) {
   const [activeTab, setActiveTab] = useState("home");
 
   const [workStatus, setWorkStatus] = useState("offline");
-  // offline | starting | online | busy | error
-
   const [geoStatus, setGeoStatus] = useState("idle");
-  // idle | searching | granted | denied | unavailable | error
-
   const [geoError, setGeoError] = useState("");
   const [liveCoords, setLiveCoords] = useState(null);
 
@@ -127,10 +119,6 @@ function Home({ repartidorId, user, onLogout }) {
   const watchIdRef = useRef(null);
   const estadoRef = useRef("offline");
 
-  /**
-   * Guarda una solicitud inicial de GPS hecha al comenzar a presionar.
-   * Sirve para que el permiso/cartel de Android se dispare dentro del gesto real.
-   */
   const gpsPrimeRef = useRef({
     status: "idle",
     promise: null,
@@ -182,8 +170,52 @@ function Home({ repartidorId, user, onLogout }) {
     };
   }, [workStatus, geoError]);
 
+  const heatZones = useMemo(
+    () => [
+      {
+        id: "centro",
+        label: "Centro",
+        level: "high",
+        message: "Zona recomendada",
+        hint: "Mayor actividad probable",
+        position: "leftTop",
+        intensity: 8,
+        lat: null,
+        lng: null,
+      },
+      {
+        id: "norte",
+        label: "B° Norte",
+        level: "medium",
+        message: "Actividad moderada",
+        hint: "Buena zona de espera",
+        position: "rightMiddle",
+        intensity: 5,
+        lat: null,
+        lng: null,
+      },
+      {
+        id: "banda",
+        label: "La Banda",
+        level: "low",
+        message: "En monitoreo",
+        hint: "Mantenete disponible",
+        position: "leftBottom",
+        intensity: 2,
+        lat: null,
+        lng: null,
+      },
+    ],
+    []
+  );
+
+  const handleSelectHeatZone = (zone) => {
+    console.log("[DRIVER_HEATMAP] Zona seleccionada:", zone);
+  };
+
   const formatMoney = (value) => {
     const num = Number(value || 0);
+
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
       currency: "ARS",
@@ -527,12 +559,6 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   const handleCancelHoldStart = () => {
-    /**
-     * Si el usuario suelta antes de los 3 segundos, no lo conectamos.
-     * Pero no cancelamos la solicitud GPS porque el navegador no permite abortar
-     * getCurrentPosition de forma confiable. Simplemente ignoramos el resultado
-     * hasta que vuelva a mantener presionado y confirme.
-     */
     if (workStatus === "offline") {
       setGeoStatus("idle");
       setGeoError("");
@@ -551,6 +577,7 @@ function Home({ repartidorId, user, onLogout }) {
   useEffect(() => {
     if (pedidoActivo) {
       setWorkStatus("busy");
+
       writePresence({
         trackingActive: geoStatus === "granted",
         availableForOffers: false,
@@ -560,6 +587,7 @@ function Home({ repartidorId, user, onLogout }) {
       });
     } else if (workStatus === "busy") {
       setWorkStatus("online");
+
       writePresence({
         trackingActive: geoStatus === "granted",
         availableForOffers: geoStatus === "granted",
@@ -589,6 +617,7 @@ function Home({ repartidorId, user, onLogout }) {
         }
 
         const docSnap = snap.docs[0];
+
         setPedidoOfertado({
           ...docSnap.data(),
           _docId: docSnap.id,
@@ -620,6 +649,7 @@ function Home({ repartidorId, user, onLogout }) {
         }
 
         const docSnap = snap.docs[0];
+
         setPedidoActivo({
           ...docSnap.data(),
           _docId: docSnap.id,
@@ -655,10 +685,12 @@ function Home({ repartidorId, user, onLogout }) {
       });
 
       setPedidoOfertado(null);
+
       setPedidoActivo({
         ...pedido,
         _docId: orderDocId,
       });
+
       setWorkStatus("busy");
 
       await writePresence({
@@ -818,36 +850,6 @@ function Home({ repartidorId, user, onLogout }) {
             <strong>{formatMoney(ficha.baseActual)}</strong>
           </article>
         </section>
-
-        <section className="driver-bottom-sheet">
-          <div className="driver-sheet-handle" />
-
-          <div className="driver-sheet-header">
-            <div>
-              <h2>Pedido actual</h2>
-              <p>
-                {pedidoActivo
-                  ? "Tenés un pedido asignado."
-                  : workStatus === "online"
-                  ? "Esperando pedidos cercanos."
-                  : "Conectate para recibir pedidos."}
-              </p>
-            </div>
-          </div>
-
-          {pedidoActivo ? (
-            <CardPedidoActivo pedido={pedidoActivo} onFinalizar={finalizarPedido} />
-          ) : (
-            <div className="driver-empty-order">
-              <div className="driver-empty-icon">↗</div>
-              <strong>Sin pedido activo</strong>
-              <span>
-                Cuando Zeus te asigne un pedido, aparecerá acá con los datos de origen,
-                destino y acciones.
-              </span>
-            </div>
-          )}
-        </section>
       </>
     );
   };
@@ -856,6 +858,7 @@ function Home({ repartidorId, user, onLogout }) {
     return (
       <section className="driver-bottom-sheet driver-bottom-sheet--full">
         <div className="driver-sheet-handle" />
+
         <div className="driver-sheet-header">
           <div>
             <h2>Pedidos</h2>
@@ -880,6 +883,7 @@ function Home({ repartidorId, user, onLogout }) {
     return (
       <section className="driver-bottom-sheet driver-bottom-sheet--full">
         <div className="driver-sheet-handle" />
+
         <div className="driver-sheet-header">
           <div>
             <h2>Billetera</h2>
@@ -892,14 +896,17 @@ function Home({ repartidorId, user, onLogout }) {
             <span>Dinero disponible</span>
             <strong>{formatMoney(ficha.dineroDisponible)}</strong>
           </article>
+
           <article>
             <span>Deuda actual</span>
             <strong>{formatMoney(ficha.deudaActual)}</strong>
           </article>
+
           <article>
             <span>Multa actual</span>
             <strong>{formatMoney(ficha.multaActual)}</strong>
           </article>
+
           <article>
             <span>Base actual</span>
             <strong>{formatMoney(ficha.baseActual)}</strong>
@@ -913,6 +920,7 @@ function Home({ repartidorId, user, onLogout }) {
     return (
       <section className="driver-bottom-sheet driver-bottom-sheet--full">
         <div className="driver-sheet-handle" />
+
         <div className="driver-sheet-header">
           <div>
             <h2>Perfil</h2>
@@ -925,22 +933,27 @@ function Home({ repartidorId, user, onLogout }) {
             <span>ID</span>
             <strong>{ficha.id || repartidorId}</strong>
           </div>
+
           <div>
             <span>Nombre</span>
             <strong>{nombreCompleto || "Repartidor"}</strong>
           </div>
+
           <div>
             <span>Movilidad</span>
             <strong>{ficha.movilidad || "-"}</strong>
           </div>
+
           <div>
             <span>Sucursal</span>
             <strong>{ficha.sucursal || "-"}</strong>
           </div>
+
           <div>
             <span>Tipo</span>
             <strong>{ficha.tipoRepartidor || "-"}</strong>
           </div>
+
           <div>
             <span>Celular</span>
             <strong>{ficha.celular || "-"}</strong>
@@ -957,47 +970,18 @@ function Home({ repartidorId, user, onLogout }) {
   return (
     <div className="driver-root">
       <main className="driver-main">
-        <section className="driver-map-stage">
-          <div className="driver-map-grid" />
-          <div className="driver-map-glow driver-map-glow--one" />
-          <div className="driver-map-glow driver-map-glow--two" />
-          <div className="driver-route-line driver-route-line--one" />
-          <div className="driver-route-line driver-route-line--two" />
-
-          <div className="driver-location-marker">
-            <span />
-          </div>
-
-          <header className="driver-floating-header">
-            <div className="driver-avatar">
-              {ficha.fotoPerfil ? (
-                <img src={ficha.fotoPerfil} alt={nombreCompleto || "Repartidor"} />
-              ) : (
-                <span>{String(ficha.nombre || "R").charAt(0).toUpperCase()}</span>
-              )}
-            </div>
-
-            <div className="driver-header-info">
-              <strong>{nombreCompleto || "Repartidor"}</strong>
-              <span>
-                ID {ficha.id || repartidorId} · {ficha.movilidad || "Movilidad"} ·{" "}
-                {ficha.sucursal || "Sucursal"}
-              </span>
-            </div>
-
-            <button className="driver-header-logout" onClick={handleLogout}>
-              Salir
-            </button>
-          </header>
-
-          <div className="driver-map-chip driver-map-chip--left">
-            GPS: {geoStatus === "granted" ? "Activo" : "Inactivo"}
-          </div>
-
-          <div className="driver-map-chip driver-map-chip--right">
-            {liveCoords ? "Ubicación enviada" : "Sin señal"}
-          </div>
-        </section>
+        <DriverHeatMap
+          ficha={ficha}
+          repartidorId={repartidorId}
+          nombreCompleto={nombreCompleto}
+          workStatus={workStatus}
+          geoStatus={geoStatus}
+          liveCoords={liveCoords}
+          pedidoActivo={pedidoActivo}
+          heatZones={heatZones}
+          onLogout={handleLogout}
+          onSelectZone={handleSelectHeatZone}
+        />
 
         <div className="driver-content">
           {activeTab === "home" && renderHomePanel()}
@@ -1007,15 +991,20 @@ function Home({ repartidorId, user, onLogout }) {
         </div>
       </main>
 
-      <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
-
-      <ModalPedidoAsignado
-        pedido={pedidoOfertado}
-        segundos={20}
-        onAceptar={aceptarOferta}
-        onRechazar={(pedido) => rechazarOferta(pedido, "rejected")}
-        onTimeout={(pedido) => rechazarOferta(pedido, "expired")}
+      <DriverActionSheet
+        workStatus={workStatus}
+        geoStatus={geoStatus}
+        geoError={geoError}
+        pedidoOfertado={pedidoOfertado}
+        pedidoActivo={pedidoActivo}
+        segundosOferta={20}
+        onAceptarOferta={aceptarOferta}
+        onRechazarOferta={(pedido) => rechazarOferta(pedido, "rejected")}
+        onTimeoutOferta={(pedido) => rechazarOferta(pedido, "expired")}
+        onFinalizarPedido={finalizarPedido}
       />
+
+      <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
     </div>
   );
 }
