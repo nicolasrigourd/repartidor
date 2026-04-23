@@ -119,6 +119,18 @@ function getNextSheetMode(currentMode, direction) {
   return currentMode;
 }
 
+function getOfferKey(pedido) {
+  if (!pedido) return "";
+
+  const docId = pedido?._docId || pedido?.id || "";
+  const offeredAt =
+    pedido?.offer?.offeredAt?.seconds ||
+    pedido?.offer?.offeredAt?.toMillis?.() ||
+    "";
+
+  return `${docId}__${offeredAt}`;
+}
+
 export default function DriverActionSheet({
   workStatus = "offline",
   geoStatus = "idle",
@@ -140,6 +152,8 @@ export default function DriverActionSheet({
     dragging: false,
   });
 
+  const processedOfferKeyRef = useRef("");
+
   const resumenOferta = useMemo(
     () => getPedidoResumen(pedidoOfertado),
     [pedidoOfertado]
@@ -148,6 +162,11 @@ export default function DriverActionSheet({
   const resumenActivo = useMemo(
     () => getPedidoResumen(pedidoActivo),
     [pedidoActivo]
+  );
+
+  const activeOfferKey = useMemo(
+    () => getOfferKey(pedidoOfertado),
+    [pedidoOfertado]
   );
 
   const statusCopy = useMemo(
@@ -162,20 +181,42 @@ export default function DriverActionSheet({
   );
 
   useEffect(() => {
-    if (!pedidoOfertado) return;
+    if (!pedidoOfertado) {
+      processedOfferKeyRef.current = "";
+      return;
+    }
 
     setRestante(segundosOferta);
     setSheetMode(SHEET_EXPANDED);
 
     if (navigator.vibrate) {
-      navigator.vibrate(200);
+      navigator.vibrate([250, 120, 250]);
     }
+
+    console.log("[SHEET] nueva oferta detectada", {
+      activeOfferKey,
+      pedidoOfertado,
+    });
 
     const interval = setInterval(() => {
       setRestante((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          onTimeoutOferta?.(pedidoOfertado);
+
+          if (
+            activeOfferKey &&
+            processedOfferKeyRef.current !== activeOfferKey
+          ) {
+            processedOfferKeyRef.current = activeOfferKey;
+
+            console.log("[SHEET] timeout oferta", {
+              activeOfferKey,
+              pedidoOfertado,
+            });
+
+            onTimeoutOferta?.(pedidoOfertado);
+          }
+
           return 0;
         }
 
@@ -184,7 +225,7 @@ export default function DriverActionSheet({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [pedidoOfertado, segundosOferta, onTimeoutOferta]);
+  }, [pedidoOfertado, segundosOferta, onTimeoutOferta, activeOfferKey]);
 
   useEffect(() => {
     if (pedidoActivo) {
@@ -202,7 +243,6 @@ export default function DriverActionSheet({
 
   const handlePointerMove = (event) => {
     if (!dragRef.current.dragging) return;
-
     dragRef.current.currentY = event.clientY;
   };
 
@@ -231,19 +271,56 @@ export default function DriverActionSheet({
 
   const handleAceptarOferta = (event) => {
     event.stopPropagation();
+
     if (!pedidoOfertado) return;
+
+    if (activeOfferKey && processedOfferKeyRef.current === activeOfferKey) {
+      console.log("[SHEET] aceptar ignorado, oferta ya procesada", {
+        activeOfferKey,
+      });
+      return;
+    }
+
+    processedOfferKeyRef.current = activeOfferKey;
+
+    console.log("[SHEET] aceptar oferta", {
+      activeOfferKey,
+      pedidoOfertado,
+    });
+
     onAceptarOferta?.(pedidoOfertado);
   };
 
   const handleRechazarOferta = (event) => {
     event.stopPropagation();
+
     if (!pedidoOfertado) return;
+
+    if (activeOfferKey && processedOfferKeyRef.current === activeOfferKey) {
+      console.log("[SHEET] rechazo ignorado, oferta ya procesada", {
+        activeOfferKey,
+      });
+      return;
+    }
+
+    processedOfferKeyRef.current = activeOfferKey;
+
+    console.log("[SHEET] rechazar oferta", {
+      activeOfferKey,
+      pedidoOfertado,
+    });
+
     onRechazarOferta?.(pedidoOfertado);
   };
 
   const handleFinalizarPedido = (event) => {
     event.stopPropagation();
     if (!pedidoActivo) return;
+
+    console.log("[SHEET] finalizar pedido", {
+      pedidoActivo,
+    });
+
     onFinalizarPedido?.(pedidoActivo);
   };
 
