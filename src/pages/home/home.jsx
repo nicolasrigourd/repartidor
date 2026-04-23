@@ -58,7 +58,6 @@ function HoldToConfirmButton({
     }
 
     setIsHolding(true);
-
     onStartHold?.();
 
     timeoutRef.current = setTimeout(() => {
@@ -78,7 +77,6 @@ function HoldToConfirmButton({
 
   useEffect(() => {
     return () => clearHold();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -596,8 +594,7 @@ function Home({ repartidorId, user, onLogout }) {
         coords: liveCoords,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pedidoActivo]);
+  }, [pedidoActivo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!repartidorId) return;
@@ -680,6 +677,7 @@ function Home({ repartidorId, user, onLogout }) {
         status: "asignado",
         assignedCadeteId: String(repartidorId),
         assignedAt: serverTimestamp(),
+        estadoOperativoLocal: "app_accepted",
         "offer.state": "accepted",
         "offer.respondedAt": serverTimestamp(),
       });
@@ -712,17 +710,33 @@ function Home({ repartidorId, user, onLogout }) {
     try {
       await updateDoc(doc(db, "orders", orderDocId), {
         status: "pendiente",
+        assignmentScope: "local",
+        estadoOperativoLocal: "pendiente_local",
+
+        assignedCadeteId: deleteField(),
+        assignedCadete: deleteField(),
+        assignedAt: deleteField(),
+
+        assignmentMode: deleteField(),
+        assignmentSource: deleteField(),
+        assignmentConfirmedAt: deleteField(),
+        assignmentConfirmedBy: deleteField(),
+        resolvedByFlow: deleteField(),
+
         "offer.state": reason,
         "offer.respondedAt": serverTimestamp(),
       });
 
       setPedidoOfertado(null);
 
+      const isRejected = reason === "rejected";
+      const isExpired = reason === "expired";
+
       await writePresence({
         trackingActive: geoStatus === "granted",
-        availableForOffers: workStatus === "online",
+        availableForOffers: isExpired && workStatus === "online",
         gpsStatus,
-        reason: "offer_rejected",
+        reason: isRejected ? "offer_rejected" : "offer_expired",
         coords: liveCoords,
       });
     } catch (error) {
