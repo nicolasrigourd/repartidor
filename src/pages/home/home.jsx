@@ -114,6 +114,7 @@ function Home({ repartidorId, user, onLogout }) {
   const [pedidoOfertado, setPedidoOfertado] = useState(null);
   const [pedidoActivo, setPedidoActivo] = useState(null);
 
+  const [admissionState, setAdmissionState] = useState(null);
   const [serverPresence, setServerPresence] = useState(null);
 
   const watchIdRef = useRef(null);
@@ -131,6 +132,21 @@ function Home({ repartidorId, user, onLogout }) {
     estadoRef.current = workStatus;
   }, [workStatus]);
 
+  const getCadeteIdentity = () => {
+    return String(
+      repartidorId ||
+        ficha.cadeteId ||
+        ficha.id ||
+        ficha.repartidorId ||
+        ""
+    ).trim();
+  };
+
+  const createSessionId = () => {
+    const id = getCadeteIdentity() || "unknown";
+    return `sess_${id}_${Date.now()}`;
+  };
+
   const statusCopy = useMemo(() => {
     if (workStatus === "busy") {
       return {
@@ -143,7 +159,7 @@ function Home({ repartidorId, user, onLogout }) {
     if (workStatus === "online") {
       return {
         label: "Disponible",
-        text: "Tu app está online. Zeus Server validará si quedás habilitado para ofertas.",
+        text: "Ya fuiste admitido por Zeus Server y estás listo para ofertas.",
         pill: "Online",
       };
     }
@@ -151,8 +167,16 @@ function Home({ repartidorId, user, onLogout }) {
     if (workStatus === "starting") {
       return {
         label: "Conectando",
-        text: "Estamos activando tu ubicación.",
+        text: "Estamos activando tu ubicación y enviando tu solicitud al server.",
         pill: "Buscando GPS",
+      };
+    }
+
+    if (workStatus === "pending_admission") {
+      return {
+        label: "En validación",
+        text: "Tu solicitud fue enviada. Zeus Server está validando tu ficha y tu GPS.",
+        pill: "Validando",
       };
     }
 
@@ -166,7 +190,7 @@ function Home({ repartidorId, user, onLogout }) {
 
     return {
       label: "Desconectado",
-      text: "Mantené presionado para activar tu ubicación e iniciar tu presencia online.",
+      text: "Mantené presionado para activar tu ubicación y solicitar ingreso online.",
       pill: "Offline",
     };
   }, [workStatus, geoError]);
@@ -224,32 +248,11 @@ function Home({ repartidorId, user, onLogout }) {
     }).format(num);
   };
 
-  const createSessionId = () => {
-    const id = repartidorId || ficha.cadeteId || ficha.id || "unknown";
-    return `sess_${id}_${Date.now()}`;
-  };
-
-  const getCadeteIdentity = () => {
-    return String(
-      repartidorId ||
-        ficha.cadeteId ||
-        ficha.id ||
-        ficha.repartidorId ||
-        ""
-    ).trim();
-  };
-
-  const buildPresencePayload = ({
-    online = false,
-    trackingActive = false,
-    availableForOffers = false,
+  const buildAdmissionRequestPayload = ({
     gpsStatus = "offline",
-    reason = "manual_update",
+    reason = "manual_request",
     coords = null,
   }) => {
-    const estadoCadete = pedidoActivo ? "en_pedido" : "disponible";
-    const effectiveWorkStatus = pedidoActivo ? "busy" : online ? "idle" : "offline";
-
     const hasValidCoords =
       coords &&
       typeof coords.lat === "number" &&
@@ -257,65 +260,91 @@ function Home({ repartidorId, user, onLogout }) {
 
     return {
       cadeteId: getCadeteIdentity(),
-      repartidorId: getCadeteIdentity(),
+      sessionId: sessionIdRef.current,
+      source: "driver_app",
 
-      online,
-      trackingActive,
-      availableForOffers,
-      estadoCadete,
-      workStatus: effectiveWorkStatus,
+      requestedAt: Date.now(),
+      lastSeen: Date.now(),
+
+      online: true,
+      trackingActive: true,
       gpsStatus,
       locationValid: hasValidCoords,
-      presenceReason: reason,
 
       lat: hasValidCoords ? coords.lat : null,
       lng: hasValidCoords ? coords.lng : null,
       accuracy: hasValidCoords ? coords.accuracy ?? null : null,
 
-      lastSeen: Date.now(),
-      sessionId: sessionIdRef.current,
+      estadoCadete: pedidoActivo ? "en_pedido" : "disponible",
+      workStatus: pedidoActivo ? "busy" : "idle",
       currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
-      source: "driver_app",
 
-      nombre: ficha.nombre || "",
-      apellido: ficha.apellido || "",
-      movilidad: ficha.movilidad || "",
-      sucursal: ficha.sucursal || "",
-      tipoRepartidor: ficha.tipoRepartidor || "",
-      usaApp: ficha.usaApp === true,
-      aptoManejoDinero: ficha.aptoManejoDinero === true,
-      fotoPerfil: ficha.fotoPerfil || "",
+      requestReason: reason,
     };
   };
 
-  const writePresence = async ({
-    online = false,
-    trackingActive = false,
-    availableForOffers = false,
+  const writeAdmissionRequest = async ({
     gpsStatus = "offline",
-    reason = "manual_update",
+    reason = "manual_request",
     coords = null,
   } = {}) => {
     const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
     try {
-      const payload = buildPresencePayload({
-        online,
-        trackingActive,
-        availableForOffers,
+      const payload = buildAdmissionRequestPayload({
         gpsStatus,
         reason,
         coords,
       });
 
-      await set(ref(rtdb, `driversLive/${cadeteId}`), payload);
+      await set(ref(rtdb, `onlineAdmissionRequests/${cadeteId}`), {
+        ...payload,
+        admissionStatus: "pending",
+        admissionReasons: null,
+      });
     } catch (error) {
-      console.error("❌ Error escribiendo presencia en RTDB:", error);
+      console.error("❌ Error escribiendo solicitud de admisión:", error);
     }
   };
 
-  const patchPresence = async (partialPayload = {}) => {
+  const patchAdmissionRequest = async (partialPayload = {}) => {
+    const cadeteId = getCadeteIdentity();
+    if (!cadeteId) return;
+
+    try {
+      await update(ref(rtdb, `onlineAdmissionRequests/${cadeteId}`), {
+        ...partialPayload,
+        lastSeen: Date.now(),
+      });
+    } catch (error) {
+      console.error("❌ Error actualizando solicitud de admisión:", error);
+    }
+  };
+
+  const removeAdmissionRequest = async () => {
+    const cadeteId = getCadeteIdentity();
+    if (!cadeteId) return;
+
+    try {
+      await set(ref(rtdb, `onlineAdmissionRequests/${cadeteId}`), null);
+    } catch (error) {
+      console.error("❌ Error removiendo solicitud de admisión:", error);
+    }
+  };
+
+  const removeDriverLive = async () => {
+    const cadeteId = getCadeteIdentity();
+    if (!cadeteId) return;
+
+    try {
+      await set(ref(rtdb, `driversLive/${cadeteId}`), null);
+    } catch (error) {
+      console.error("❌ Error removiendo driversLive:", error);
+    }
+  };
+
+  const patchDriverLive = async (partialPayload = {}) => {
     const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
@@ -325,18 +354,7 @@ function Home({ repartidorId, user, onLogout }) {
         lastSeen: Date.now(),
       });
     } catch (error) {
-      console.error("❌ Error actualizando presencia parcial en RTDB:", error);
-    }
-  };
-
-  const removePresence = async () => {
-    const cadeteId = getCadeteIdentity();
-    if (!cadeteId) return;
-
-    try {
-      await set(ref(rtdb, `driversLive/${cadeteId}`), null);
-    } catch (error) {
-      console.error("❌ Error removiendo presencia en RTDB:", error);
+      console.error("❌ Error actualizando driversLive:", error);
     }
   };
 
@@ -353,6 +371,8 @@ function Home({ repartidorId, user, onLogout }) {
     setGeoStatus("idle");
     setGeoError("");
     setWorkStatus("offline");
+    setAdmissionState(null);
+    setServerPresence(null);
 
     gpsPrimeRef.current = {
       status: "idle",
@@ -361,16 +381,18 @@ function Home({ repartidorId, user, onLogout }) {
       error: null,
     };
 
-    await writePresence({
+    await patchAdmissionRequest({
       online: false,
       trackingActive: false,
-      availableForOffers: false,
       gpsStatus: "offline",
-      reason,
-      coords: null,
+      locationValid: false,
+      requestReason: reason,
+      workStatus: "offline",
     });
 
-    await removePresence();
+    await removeAdmissionRequest();
+    await removeDriverLive();
+
     sessionIdRef.current = null;
   };
 
@@ -384,8 +406,6 @@ function Home({ repartidorId, user, onLogout }) {
     if (!navigator.geolocation) return;
     if (gpsPrimeRef.current.status === "pending") return;
 
-    console.log("[DRIVER_GPS] Pre-solicitando ubicación por gesto del usuario...");
-
     const promise = getPositionPromise();
 
     gpsPrimeRef.current = {
@@ -397,8 +417,6 @@ function Home({ repartidorId, user, onLogout }) {
 
     promise
       .then((position) => {
-        console.log("[DRIVER_GPS] Pre-solicitud GPS exitosa:", position.coords);
-
         gpsPrimeRef.current = {
           status: "success",
           promise: null,
@@ -407,8 +425,6 @@ function Home({ repartidorId, user, onLogout }) {
         };
       })
       .catch((error) => {
-        console.error("[DRIVER_GPS] Error en pre-solicitud GPS:", error);
-
         gpsPrimeRef.current = {
           status: "error",
           promise: null,
@@ -419,8 +435,6 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   const handleInitialGpsError = async (error) => {
-    console.error("[DRIVER_GPS] Error getCurrentPosition:", error);
-
     let message = "No pudimos obtener tu ubicación.";
     let nextStatus = "error";
     let gpsState = "offline";
@@ -454,10 +468,7 @@ function Home({ repartidorId, user, onLogout }) {
     setGeoStatus(nextStatus);
     setWorkStatus("error");
 
-    await writePresence({
-      online: false,
-      trackingActive: false,
-      availableForOffers: false,
+    await writeAdmissionRequest({
       gpsStatus: gpsState,
       reason,
       coords: null,
@@ -473,25 +484,37 @@ function Home({ repartidorId, user, onLogout }) {
           accuracy: pos.coords.accuracy,
         };
 
-        console.log("[DRIVER_GPS] Ubicación actualizada:", nextCoords);
-
         setLiveCoords(nextCoords);
         setGeoStatus("granted");
 
-        const isBusy = estadoRef.current === "busy";
-
-        await writePresence({
-          online: true,
+        await patchAdmissionRequest({
           trackingActive: true,
-          availableForOffers: false,
           gpsStatus: "ok",
-          reason: isBusy ? "tracking_order" : "tracking_online_waiting_server",
-          coords: nextCoords,
+          locationValid: true,
+          lat: nextCoords.lat,
+          lng: nextCoords.lng,
+          accuracy: nextCoords.accuracy ?? null,
+          estadoCadete: pedidoActivo ? "en_pedido" : "disponible",
+          workStatus: pedidoActivo ? "busy" : "idle",
+          currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
+          requestReason: pedidoActivo ? "tracking_order" : "tracking_pending_admission",
         });
+
+        if (serverPresence) {
+          await patchDriverLive({
+            trackingActive: true,
+            gpsStatus: "ok",
+            locationValid: true,
+            lat: nextCoords.lat,
+            lng: nextCoords.lng,
+            accuracy: nextCoords.accuracy ?? null,
+            estadoCadete: pedidoActivo ? "en_pedido" : "disponible",
+            workStatus: pedidoActivo ? "busy" : "idle",
+            currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
+          });
+        }
       },
       async (error) => {
-        console.error("[DRIVER_GPS] Error watchPosition:", error);
-
         let message = "No pudimos actualizar tu ubicación.";
         let nextStatus = "error";
         let gpsState = "offline";
@@ -525,14 +548,26 @@ function Home({ repartidorId, user, onLogout }) {
         setGeoStatus(nextStatus);
         setWorkStatus("error");
 
-        await writePresence({
-          online: false,
+        await patchAdmissionRequest({
           trackingActive: false,
-          availableForOffers: false,
           gpsStatus: gpsState,
-          reason,
-          coords: null,
+          locationValid: false,
+          lat: null,
+          lng: null,
+          accuracy: null,
+          requestReason: reason,
         });
+
+        if (serverPresence) {
+          await patchDriverLive({
+            trackingActive: false,
+            gpsStatus: gpsState,
+            locationValid: false,
+            lat: null,
+            lng: null,
+            accuracy: null,
+          });
+        }
       },
       GEO_OPTIONS
     );
@@ -543,16 +578,6 @@ function Home({ repartidorId, user, onLogout }) {
       setGeoStatus("unavailable");
       setGeoError("Este dispositivo no soporta geolocalización.");
       setWorkStatus("error");
-
-      await writePresence({
-        online: false,
-        trackingActive: false,
-        availableForOffers: false,
-        gpsStatus: "unavailable",
-        reason: "geolocation_unavailable",
-        coords: null,
-      });
-
       return;
     }
 
@@ -569,10 +594,10 @@ function Home({ repartidorId, user, onLogout }) {
     setWorkStatus("starting");
     setGeoStatus("searching");
     setGeoError("");
+    setAdmissionState(null);
+    setServerPresence(null);
 
     stopGpsWatch();
-
-    console.log("[DRIVER_GPS] Confirmando inicio de trabajo...");
 
     let position = null;
 
@@ -582,7 +607,6 @@ function Home({ repartidorId, user, onLogout }) {
       } else if (gpsPrimeRef.current.status === "pending") {
         position = await gpsPrimeRef.current.promise;
       } else {
-        console.log("[DRIVER_GPS] Solicitando ubicación al confirmar...");
         position = await getPositionPromise();
       }
     } catch (error) {
@@ -604,8 +628,6 @@ function Home({ repartidorId, user, onLogout }) {
       accuracy: position.coords.accuracy,
     };
 
-    console.log("[DRIVER_GPS] Ubicación inicial obtenida:", coords);
-
     gpsPrimeRef.current = {
       status: "idle",
       promise: null,
@@ -615,14 +637,11 @@ function Home({ repartidorId, user, onLogout }) {
 
     setLiveCoords(coords);
     setGeoStatus("granted");
-    setWorkStatus(pedidoActivo ? "busy" : "online");
+    setWorkStatus("pending_admission");
 
-    await writePresence({
-      online: true,
-      trackingActive: true,
-      availableForOffers: false,
+    await writeAdmissionRequest({
       gpsStatus: "ok",
-      reason: "work_started_waiting_server_validation",
+      reason: "online_admission_requested",
       coords,
     });
 
@@ -646,28 +665,57 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   useEffect(() => {
-    if (!pedidoActivo) return;
+    const cadeteId = getCadeteIdentity();
+    if (!cadeteId) return;
 
-    patchPresence({
-      estadoCadete: "en_pedido",
-      workStatus: "busy",
-      availableForOffers: false,
-      currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
-      presenceReason: "order_active",
-    });
-  }, [pedidoActivo]); // eslint-disable-line react-hooks/exhaustive-deps
+    const admissionRef = ref(rtdb, `onlineAdmissionRequests/${cadeteId}`);
+
+    const unsubscribe = onValue(
+      admissionRef,
+      (snapshot) => {
+        const value = snapshot.val() || null;
+        setAdmissionState(value);
+
+        if (!value) return;
+
+        if (value.admissionStatus === "approved") {
+          if (workStatus !== "busy") {
+            setWorkStatus(pedidoActivo ? "busy" : "online");
+          }
+          setGeoError("");
+          return;
+        }
+
+        if (value.admissionStatus === "rejected") {
+          const reasons = Array.isArray(value.admissionReasons)
+            ? value.admissionReasons.join(", ")
+            : "No pudimos habilitarte.";
+
+          setGeoError(`No habilitado: ${reasons}`);
+          setWorkStatus("error");
+        }
+      },
+      (error) => {
+        console.error("❌ Error escuchando onlineAdmissionRequests:", error);
+      }
+    );
+
+    return () => {
+      off(admissionRef, "value", unsubscribe);
+    };
+  }, [repartidorId, pedidoActivo, workStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
-    const presenceRef = ref(rtdb, `driversLive/${cadeteId}`);
+    const liveRef = ref(rtdb, `driversLive/${cadeteId}`);
 
     const unsubscribe = onValue(
-      presenceRef,
+      liveRef,
       (snapshot) => {
         const value = snapshot.val() || null;
-        setServerPresence(value || null);
+        setServerPresence(value);
 
         if (!value) return;
 
@@ -676,7 +724,7 @@ function Home({ repartidorId, user, onLogout }) {
           return;
         }
 
-        if (value.online === true && !value.currentOrderId && workStatus === "offline") {
+        if (value.online === true && !value.currentOrderId && workStatus !== "busy") {
           setWorkStatus("online");
         }
       },
@@ -686,9 +734,21 @@ function Home({ repartidorId, user, onLogout }) {
     );
 
     return () => {
-      off(presenceRef, "value", unsubscribe);
+      off(liveRef, "value", unsubscribe);
     };
-  }, [repartidorId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [repartidorId, workStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!pedidoActivo || !serverPresence) return;
+
+    patchDriverLive({
+      estadoCadete: "en_pedido",
+      workStatus: "busy",
+      availableForOffers: false,
+      currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
+      presenceReason: "order_active",
+    });
+  }, [pedidoActivo, serverPresence]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!repartidorId) return;
@@ -786,13 +846,20 @@ function Home({ repartidorId, user, onLogout }) {
       setPedidoActivo(nextPedidoActivo);
       setWorkStatus("busy");
 
-      await writePresence({
-        online: true,
-        trackingActive: geoStatus === "granted",
-        availableForOffers: false,
-        gpsStatus: geoStatus === "granted" ? "ok" : "offline",
-        reason: "offer_accepted",
-        coords: liveCoords,
+      if (serverPresence) {
+        await patchDriverLive({
+          estadoCadete: "en_pedido",
+          workStatus: "busy",
+          availableForOffers: false,
+          currentOrderId: orderDocId,
+          presenceReason: "offer_accepted",
+        });
+      }
+
+      await patchAdmissionRequest({
+        estadoCadete: "en_pedido",
+        workStatus: "busy",
+        currentOrderId: orderDocId,
       });
     } catch (error) {
       console.error("❌ Error aceptando oferta:", error);
@@ -825,14 +892,12 @@ function Home({ repartidorId, user, onLogout }) {
 
       setPedidoOfertado(null);
 
-      await writePresence({
-        online: geoStatus === "granted",
-        trackingActive: geoStatus === "granted",
-        availableForOffers: false,
-        gpsStatus: geoStatus === "granted" ? "ok" : "offline",
-        reason: reason === "rejected" ? "offer_rejected" : "offer_expired",
-        coords: liveCoords,
-      });
+      if (serverPresence) {
+        await patchDriverLive({
+          availableForOffers: false,
+          presenceReason: reason === "rejected" ? "offer_rejected" : "offer_expired",
+        });
+      }
     } catch (error) {
       console.error("❌ Error rechazando oferta:", error);
     }
@@ -849,16 +914,24 @@ function Home({ repartidorId, user, onLogout }) {
       });
 
       setPedidoActivo(null);
-      setWorkStatus(geoStatus === "granted" ? "online" : "offline");
 
-      await writePresence({
-        online: geoStatus === "granted",
-        trackingActive: geoStatus === "granted",
-        availableForOffers: false,
-        gpsStatus: geoStatus === "granted" ? "ok" : "offline",
-        reason: "order_finished_waiting_server",
-        coords: liveCoords,
+      if (serverPresence) {
+        await patchDriverLive({
+          estadoCadete: "disponible",
+          workStatus: "idle",
+          currentOrderId: null,
+          availableForOffers: true,
+          presenceReason: "order_finished",
+        });
+      }
+
+      await patchAdmissionRequest({
+        estadoCadete: "disponible",
+        workStatus: "idle",
+        currentOrderId: null,
       });
+
+      setWorkStatus("online");
     } catch (error) {
       console.error("❌ Error finalizando pedido:", error);
     }
@@ -875,15 +948,15 @@ function Home({ repartidorId, user, onLogout }) {
           holdMs={3000}
           holdingText="Activando GPS..."
         >
-          Mantener para activar GPS
+          Mantener para solicitar ingreso online
         </HoldToConfirmButton>
       );
     }
 
-    if (workStatus === "starting") {
+    if (workStatus === "starting" || workStatus === "pending_admission") {
       return (
         <button className="driver-main-action driver-main-action--loading" disabled>
-          Activando GPS...
+          Validando ingreso...
         </button>
       );
     }
@@ -916,9 +989,37 @@ function Home({ repartidorId, user, onLogout }) {
         holdMs={3000}
         holdingText="Solicitando ubicación..."
       >
-        Mantener para reconectar GPS
+        Mantener para reintentar ingreso
       </HoldToConfirmButton>
     );
+  };
+
+  const renderServerBox = () => {
+    if (admissionState?.admissionStatus === "approved") {
+      return (
+        <div className="driver-mini-server-box">
+          <strong>Estado server:</strong> Habilitado para ofertas
+        </div>
+      );
+    }
+
+    if (admissionState?.admissionStatus === "rejected") {
+      return (
+        <div className="driver-mini-server-box">
+          <strong>Estado server:</strong> Rechazado
+        </div>
+      );
+    }
+
+    if (admissionState) {
+      return (
+        <div className="driver-mini-server-box">
+          <strong>Estado server:</strong> En validación
+        </div>
+      );
+    }
+
+    return null;
   };
 
   const renderHomePanel = () => {
@@ -934,13 +1035,7 @@ function Home({ repartidorId, user, onLogout }) {
           <p>{statusCopy.text}</p>
 
           {renderMainAction()}
-
-          {serverPresence && (
-            <div className="driver-mini-server-box">
-              <strong>Estado server:</strong>{" "}
-              {serverPresence.availableForOffers ? "Habilitado para ofertas" : "En validación"}
-            </div>
-          )}
+          {renderServerBox()}
 
           {geoError && <div className="driver-error-box">{geoError}</div>}
         </section>
