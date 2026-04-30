@@ -16,7 +16,7 @@ import {
   where,
 } from "firebase/firestore";
 
-import { ref, set, update, onValue, off, get, remove } from "firebase/database";
+import { ref, set, update, onValue, off } from "firebase/database";
 import { db, rtdb } from "../../firebaseconfig";
 
 const GEO_OPTIONS = {
@@ -318,7 +318,11 @@ function Home({ repartidorId, user, onLogout }) {
   );
 
   const writeAdmissionRequest = useCallback(
-    async ({ gpsStatus = "offline", reason = "manual_request", coords = null } = {}) => {
+    async ({
+      gpsStatus = "offline",
+      reason = "manual_request",
+      coords = null,
+    } = {}) => {
       if (!cadeteId) return;
 
       try {
@@ -409,45 +413,40 @@ function Home({ repartidorId, user, onLogout }) {
     }
   }, []);
 
-  const releasePendingOfferOnOffline = useCallback(
-    async (offer) => {
+  const markOfferAs = useCallback(
+    async (offer, status, extraPayload = {}) => {
       const orderDocId = resolveOrderDocId(offer);
+
       if (!orderDocId || !cadeteId) return;
 
       try {
-        const driverOfferRef = ref(rtdb, `driverOffers/${cadeteId}/${orderDocId}`);
-        const queueRef = ref(rtdb, `orderQueue/${orderDocId}`);
-        const queueSnap = await get(queueRef);
+        const driverOfferRef = ref(
+          rtdb,
+          `driverOffers/${cadeteId}/${orderDocId}`
+        );
 
-        const existingQueue = queueSnap.val() || null;
-
-        if (existingQueue) {
-          const nextExcluded = Array.isArray(existingQueue?.excludedCadeteIds)
-            ? [...new Set([...existingQueue.excludedCadeteIds, cadeteId])]
-            : [cadeteId];
-
-          await update(queueRef, {
-            matchStatus: "ready_for_match",
-            currentOfferCadeteId: null,
-            currentOffer: null,
-            excludedCadeteIds: nextExcluded,
-          });
-        }
-
-        await updateDoc(doc(db, "orders", orderDocId), {
-          status: "pendiente",
-          serverStatus: "validated_online",
-          assignmentStatus: "offer_expired",
-          "offer.state": "expired",
-          "offer.respondedAt": serverTimestamp(),
+        await update(driverOfferRef, {
+          status,
+          respondedAt: Date.now(),
+          responseSource: "driver_app",
+          ...extraPayload,
         });
 
-        await remove(driverOfferRef);
+        setPedidoOfertado(null);
       } catch (error) {
-        console.error("❌ Error liberando oferta pendiente al quedar offline:", error);
+        console.error(`❌ Error marcando oferta como ${status}:`, error);
       }
     },
     [cadeteId, resolveOrderDocId]
+  );
+
+  const releasePendingOfferOnOffline = useCallback(
+    async (offer) => {
+      await markOfferAs(offer, "rejected", {
+        responseReason: "driver_offline",
+      });
+    },
+    [markOfferAs]
   );
 
   const markOffline = useCallback(
@@ -932,7 +931,8 @@ function Home({ repartidorId, user, onLogout }) {
     if (!activeOrderPresenceSignature.shouldWrite) return;
 
     const shouldPatch =
-      activeOrderPresenceSignature.currentOrderId !== activeOrderPresenceSignature.activeOrderId ||
+      activeOrderPresenceSignature.currentOrderId !==
+        activeOrderPresenceSignature.activeOrderId ||
       activeOrderPresenceSignature.estadoCadete !== "en_pedido" ||
       activeOrderPresenceSignature.workStatus !== "busy" ||
       activeOrderPresenceSignature.availableForOffers !== false;
@@ -965,113 +965,26 @@ function Home({ repartidorId, user, onLogout }) {
 
   const aceptarOferta = useCallback(
     async (oferta) => {
-      const orderDocId = resolveOrderDocId(oferta);
-      if (!orderDocId || !cadeteId) return;
+      await markOfferAs(oferta, "accepted", {
+        responseReason: "driver_accepted",
+      });
 
-      try {
-        const orderRef = doc(db, "orders", orderDocId);
-        const driverOfferRef = ref(rtdb, `driverOffers/${cadeteId}/${orderDocId}`);
-        const queueRef = ref(rtdb, `orderQueue/${orderDocId}`);
-
-        await updateDoc(orderRef, {
-          status: "asignado",
-          serverStatus: "matched",
-          assignmentStatus: "assigned",
-          assignedCadeteId: String(cadeteId),
-          assignedAt: serverTimestamp(),
-          assignedCadete: {
-            cadeteId: String(cadeteId),
-            nombre: ficha.nombre || "",
-            apellido: ficha.apellido || "",
-            movilidad: ficha.movilidad || "",
-          },
-          "offer.state": "accepted",
-          "offer.respondedAt": serverTimestamp(),
-        });
-
-        await patchDriverLive({
-          estadoCadete: "en_pedido",
-          workStatus: "busy",
-          availableForOffers: false,
-          currentOrderId: orderDocId,
-          presenceReason: "offer_accepted",
-        });
-
-        await patchAdmissionRequest({
-          estadoCadete: "en_pedido",
-          workStatus: "busy",
-          currentOrderId: orderDocId,
-        });
-
-        await remove(driverOfferRef);
-        await remove(queueRef);
-
-        setPedidoOfertado(null);
-        setTransientMode(null);
-      } catch (error) {
-        console.error("❌ Error aceptando oferta:", error);
-      }
+      setTransientMode(null);
     },
-    [cadeteId, ficha, patchAdmissionRequest, patchDriverLive, resolveOrderDocId]
+    [markOfferAs]
   );
 
   const rechazarOferta = useCallback(
     async (oferta, reason = "rejected") => {
-      const orderDocId = resolveOrderDocId(oferta);
-      if (!orderDocId || !cadeteId) return;
+      const nextStatus = reason === "expired" ? "expired" : "rejected";
 
-      try {
-        const driverOfferRef = ref(rtdb, `driverOffers/${cadeteId}/${orderDocId}`);
-        const queueRef = ref(rtdb, `orderQueue/${orderDocId}`);
-        const queueSnap = await get(queueRef);
+      await markOfferAs(oferta, nextStatus, {
+        responseReason: reason,
+      });
 
-        const existingQueue = queueSnap.val() || null;
-
-        const nextExcluded = Array.isArray(existingQueue?.excludedCadeteIds)
-          ? [...new Set([...existingQueue.excludedCadeteIds, cadeteId])]
-          : [cadeteId];
-
-        if (existingQueue) {
-          await update(queueRef, {
-            matchStatus: "ready_for_match",
-            currentOfferCadeteId: null,
-            currentOffer: null,
-            excludedCadeteIds: nextExcluded,
-          });
-        }
-
-        await updateDoc(doc(db, "orders", orderDocId), {
-          status: "pendiente",
-          serverStatus: "validated_online",
-          assignmentStatus: reason === "expired" ? "offer_expired" : "offer_rejected",
-          "offer.state": reason,
-          "offer.respondedAt": serverTimestamp(),
-        });
-
-        await remove(driverOfferRef);
-
-        setPedidoOfertado(null);
-
-        if (serverPresence) {
-          await patchDriverLive({
-            availableForOffers: true,
-            estadoCadete: "disponible",
-            workStatus: "idle",
-            currentOrderId: null,
-            presenceReason: reason === "expired" ? "offer_expired" : "offer_rejected",
-          });
-        }
-
-        await patchAdmissionRequest({
-          estadoCadete: "disponible",
-          workStatus: "idle",
-          currentOrderId: null,
-        });
-      } catch (error) {
-        console.error("❌ Error rechazando oferta:", error);
-      }
+      setTransientMode(null);
     },
-    [cadeteId, patchAdmissionRequest, patchDriverLive, resolveOrderDocId, serverPresence]
+    [markOfferAs]
   );
 
   const finalizarPedido = useCallback(
