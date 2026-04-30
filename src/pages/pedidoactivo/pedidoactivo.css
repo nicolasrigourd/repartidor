@@ -1,0 +1,428 @@
+.pedido-activo-page {
+  min-height: 100dvh;
+  width: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 32%),
+    linear-gradient(180deg, #eef5ff 0%, #f8fafc 42%, #ffffff 100%);
+  padding: 14px;
+  padding-bottom: 28px;
+  color: #0f172a;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+.pedido-activo-hero {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(30, 64, 175, 0.96)),
+    #0f172a;
+  border-radius: 28px;
+  padding: 18px;
+  color: #ffffff;
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.26);
+  position: relative;
+  overflow: hidden;
+}
+
+.pedido-activo-hero::after {
+  content: "";
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  right: -74px;
+  top: -86px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.25);
+  pointer-events: none;
+}
+
+.pedido-activo-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.pedido-activo-back {
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.pedido-activo-topbar span {
+  display: block;
+  font-size: 12px;
+  color: #cbd5e1;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pedido-activo-topbar strong {
+  display: block;
+  font-size: 15px;
+  color: #ffffff;
+  margin-top: 2px;
+}
+
+.pedido-activo-status {
+  margin-top: 28px;
+  position: relative;
+  z-index: 1;
+}
+
+.pedido-activo-status span {
+  display: inline-flex;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(134, 239, 172, 0.35);
+  color: #bbf7d0;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pedido-activo-status h1 {
+  margin: 14px 0 8px;
+  font-size: clamp(26px, 7vw, 38px);
+  line-height: 1.03;
+  letter-spacing: -0.04em;
+}
+
+.pedido-activo-status p {
+  margin: 0;
+  color: #dbeafe;
+  font-size: 15px;
+  line-height: 1.45;
+  max-width: 520px;
+}
+
+.pedido-activo-main-actions {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 10px;
+  margin-top: 22px;
+  position: relative;
+  z-index: 1;
+}
+
+.pedido-activo-route-btn,
+.pedido-activo-primary-btn {
+  min-height: 54px;
+  border-radius: 18px;
+  border: none;
+  font-size: 15px;
+  font-weight: 900;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+}
+
+.pedido-activo-route-btn {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.pedido-activo-primary-btn {
+  background: #22c55e;
+  color: #052e16;
+  box-shadow: 0 16px 30px rgba(34, 197, 94, 0.27);
+}
+
+.pedido-activo-primary-btn:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.pedido-activo-inline-error {
+  margin: 12px 2px 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pedido-activo-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.pedido-activo-summary article,
+.pedido-activo-info-grid article {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 19px;
+  padding: 13px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.pedido-activo-summary span,
+.pedido-activo-info-grid span {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pedido-activo-summary strong,
+.pedido-activo-info-grid strong {
+  display: block;
+  margin-top: 5px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.pedido-activo-cash-alert {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pedido-activo-cash-alert strong {
+  color: #92400e;
+  font-size: 14px;
+}
+
+.pedido-activo-cash-alert span {
+  color: #b45309;
+  font-size: 13px;
+}
+
+.pedido-activo-route-card,
+.pedido-activo-contact-card,
+.pedido-activo-info-grid,
+.pedido-activo-map-actions {
+  margin-top: 14px;
+}
+
+.pedido-activo-route-card,
+.pedido-activo-contact-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.08);
+}
+
+.pedido-activo-route-point {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.pedido-activo-route-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 13px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.pedido-activo-route-icon--dest {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.pedido-activo-route-point span,
+.pedido-activo-contact-card span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pedido-activo-route-point strong,
+.pedido-activo-contact-card strong {
+  display: block;
+  color: #0f172a;
+  font-size: 16px;
+  margin-top: 3px;
+  line-height: 1.25;
+}
+
+.pedido-activo-route-point p,
+.pedido-activo-contact-card p {
+  margin: 7px 0 0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.38;
+}
+
+.pedido-activo-route-line {
+  width: 2px;
+  height: 24px;
+  background: repeating-linear-gradient(
+    to bottom,
+    #cbd5e1,
+    #cbd5e1 5px,
+    transparent 5px,
+    transparent 9px
+  );
+  margin: 7px 0 7px 16px;
+}
+
+.pedido-activo-contact-card {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.pedido-activo-contact-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.pedido-activo-contact-actions button {
+  min-height: 48px;
+  border: none;
+  border-radius: 16px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.pedido-activo-contact-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pedido-activo-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.pedido-activo-map-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  padding-bottom: 8px;
+}
+
+.pedido-activo-map-actions a {
+  min-height: 48px;
+  border-radius: 16px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+  padding: 0 8px;
+}
+
+.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.pedido-activo-loading,
+.pedido-activo-error {
+  min-height: 80dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.pedido-activo-loading p,
+.pedido-activo-error p {
+  color: #64748b;
+  font-size: 15px;
+}
+
+.pedido-activo-spinner {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 4px solid #dbeafe;
+  border-top-color: #2563eb;
+  animation: pedidoActivoSpin 0.85s linear infinite;
+}
+
+.pedido-activo-error h2 {
+  margin: 0 0 8px;
+  color: #0f172a;
+}
+
+.pedido-activo-error button {
+  margin-top: 16px;
+  min-height: 48px;
+  border: none;
+  border-radius: 16px;
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 900;
+  padding: 0 18px;
+}
+
+@keyframes pedidoActivoSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 420px) {
+  .pedido-activo-page {
+    padding: 10px;
+    padding-bottom: 22px;
+  }
+
+  .pedido-activo-hero {
+    border-radius: 24px;
+    padding: 16px;
+  }
+
+  .pedido-activo-main-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .pedido-activo-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .pedido-activo-map-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .pedido-activo-contact-actions {
+    grid-template-columns: 1fr;
+  }
+}

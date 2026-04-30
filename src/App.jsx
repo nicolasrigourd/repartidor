@@ -9,9 +9,16 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+} from "react-router-dom";
 
 import Login from "./pages/login/login";
 import Home from "./pages/home/home";
+import PedidoActivo from "./pages/pedidoactivo/pedidoactivo";
 import PwaUpdatePrompt from "./components/pwaupdate/pwaupdate";
 import { db } from "./firebaseconfig";
 
@@ -314,34 +321,67 @@ function App() {
     localStorage.removeItem(STORAGE_KEY);
   };
 
+  const renderLogin = () => {
+    return (
+      <>
+        {sessionMessage && (
+          <div
+            style={{
+              margin: "12px",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              background: "#fee2e2",
+              color: "#991b1b",
+              fontWeight: 700,
+              fontSize: "0.9rem",
+            }}
+          >
+            {sessionMessage}
+          </div>
+        )}
+
+        <Login onLogin={handleLogin} />
+      </>
+    );
+  };
+
+  const renderProtectedRoutes = () => {
+    return (
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <Home
+              repartidorId={user.id}
+              user={user}
+              onLogout={handleLogout}
+            />
+          }
+        />
+
+        <Route
+          path="/pedido-activo/:orderId"
+          element={
+            <PedidoActivo
+              repartidorId={user.id}
+              user={user}
+            />
+          }
+        />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    );
+  };
+
   return (
-    <div>
-      {!isLoggedIn ? (
-        <>
-          {sessionMessage && (
-            <div
-              style={{
-                margin: "12px",
-                padding: "10px 12px",
-                borderRadius: "10px",
-                background: "#fee2e2",
-                color: "#991b1b",
-                fontWeight: 700,
-                fontSize: "0.9rem",
-              }}
-            >
-              {sessionMessage}
-            </div>
-          )}
+    <BrowserRouter>
+      <div>
+        {!isLoggedIn ? renderLogin() : renderProtectedRoutes()}
 
-          <Login onLogin={handleLogin} />
-        </>
-      ) : (
-        <Home repartidorId={user.id} user={user} onLogout={handleLogout} />
-      )}
-
-      <PwaUpdatePrompt />
-    </div>
+        <PwaUpdatePrompt />
+      </div>
+    </BrowserRouter>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import "./home.css";
 
 import BottomBar from "../../components/bottombar/bottombar";
@@ -117,6 +118,9 @@ function resolveUiMode({
 }
 
 function Home({ repartidorId, user, onLogout }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const ficha = user?.ficha || user || {};
   const nombreCompleto = `${ficha.nombre || ""} ${ficha.apellido || ""}`.trim();
 
@@ -914,6 +918,18 @@ function Home({ repartidorId, user, onLogout }) {
     return () => unsubscribe();
   }, [repartidorId]);
 
+  useEffect(() => {
+    const activeOrderId = pedidoActivo?._docId || pedidoActivo?.id;
+
+    if (!activeOrderId) return;
+
+    const targetPath = `/pedido-activo/${activeOrderId}`;
+
+    if (location.pathname !== targetPath) {
+      navigate(targetPath, { replace: true });
+    }
+  }, [pedidoActivo, location.pathname, navigate]);
+
   const activeOrderPresenceSignature = useMemo(() => {
     const activeOrderId = pedidoActivo?._docId || pedidoActivo?.id || null;
 
@@ -1084,8 +1100,14 @@ function Home({ repartidorId, user, onLogout }) {
 
     if (workStatus === "busy") {
       return (
-        <button className="driver-main-action driver-main-action--busy" disabled>
-          Pedido en curso
+        <button
+          className="driver-main-action driver-main-action--busy"
+          onClick={() => {
+            const activeOrderId = pedidoActivo?._docId || pedidoActivo?.id;
+            if (activeOrderId) navigate(`/pedido-activo/${activeOrderId}`);
+          }}
+        >
+          Continuar pedido
         </button>
       );
     }
