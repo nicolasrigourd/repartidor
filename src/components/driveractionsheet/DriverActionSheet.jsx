@@ -146,7 +146,7 @@ function getRemainingSeconds(pedido, fallbackSeconds) {
   return Math.max(0, diffSeconds);
 }
 
-export default function DriverActionSheet({
+function DriverActionSheet({
   workStatus = "offline",
   geoStatus = "idle",
   geoError = "",
