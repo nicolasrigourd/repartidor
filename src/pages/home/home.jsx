@@ -8,7 +8,6 @@ import DriverActionSheet from "../../components/driveractionsheet/DriverActionSh
 
 import {
   collection,
-  deleteField,
   doc,
   onSnapshot,
   query,
@@ -17,7 +16,7 @@ import {
   where,
 } from "firebase/firestore";
 
-import { ref, set, update, onValue, off } from "firebase/database";
+import { ref, set, update, onValue, off, get, remove } from "firebase/database";
 import { db, rtdb } from "../../firebaseconfig";
 
 const GEO_OPTIONS = {
@@ -67,13 +66,8 @@ function HoldToConfirmButton({
     }, holdMs);
   };
 
-  const handlePointerUp = () => {
-    clearHold();
-  };
-
-  const handlePointerLeave = () => {
-    clearHold();
-  };
+  const handlePointerUp = () => clearHold();
+  const handlePointerLeave = () => clearHold();
 
   useEffect(() => {
     return () => clearHold();
@@ -118,7 +112,6 @@ function Home({ repartidorId, user, onLogout }) {
   const [serverPresence, setServerPresence] = useState(null);
 
   const watchIdRef = useRef(null);
-  const estadoRef = useRef("offline");
   const sessionIdRef = useRef(null);
 
   const gpsPrimeRef = useRef({
@@ -127,10 +120,6 @@ function Home({ repartidorId, user, onLogout }) {
     position: null,
     error: null,
   });
-
-  useEffect(() => {
-    estadoRef.current = workStatus;
-  }, [workStatus]);
 
   const getCadeteIdentity = () => {
     return String(
@@ -142,8 +131,10 @@ function Home({ repartidorId, user, onLogout }) {
     ).trim();
   };
 
+  const cadeteId = getCadeteIdentity();
+
   const createSessionId = () => {
-    const id = getCadeteIdentity() || "unknown";
+    const id = cadeteId || "unknown";
     return `sess_${id}_${Date.now()}`;
   };
 
@@ -240,7 +231,6 @@ function Home({ repartidorId, user, onLogout }) {
 
   const formatMoney = (value) => {
     const num = Number(value || 0);
-
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
       currency: "ARS",
@@ -259,26 +249,21 @@ function Home({ repartidorId, user, onLogout }) {
       typeof coords.lng === "number";
 
     return {
-      cadeteId: getCadeteIdentity(),
+      cadeteId,
       sessionId: sessionIdRef.current,
       source: "driver_app",
-
       requestedAt: Date.now(),
       lastSeen: Date.now(),
-
       online: true,
       trackingActive: true,
       gpsStatus,
       locationValid: hasValidCoords,
-
       lat: hasValidCoords ? coords.lat : null,
       lng: hasValidCoords ? coords.lng : null,
       accuracy: hasValidCoords ? coords.accuracy ?? null : null,
-
       estadoCadete: pedidoActivo ? "en_pedido" : "disponible",
       workStatus: pedidoActivo ? "busy" : "idle",
       currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
-
       requestReason: reason,
     };
   };
@@ -288,7 +273,6 @@ function Home({ repartidorId, user, onLogout }) {
     reason = "manual_request",
     coords = null,
   } = {}) => {
-    const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
     try {
@@ -309,7 +293,6 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   const patchAdmissionRequest = async (partialPayload = {}) => {
-    const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
     try {
@@ -323,7 +306,6 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   const removeAdmissionRequest = async () => {
-    const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
     try {
@@ -334,7 +316,6 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   const removeDriverLive = async () => {
-    const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
     try {
@@ -345,7 +326,6 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   const patchDriverLive = async (partialPayload = {}) => {
-    const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
     try {
@@ -373,6 +353,7 @@ function Home({ repartidorId, user, onLogout }) {
     setWorkStatus("offline");
     setAdmissionState(null);
     setServerPresence(null);
+    setPedidoOfertado(null);
 
     gpsPrimeRef.current = {
       status: "idle",
@@ -396,11 +377,10 @@ function Home({ repartidorId, user, onLogout }) {
     sessionIdRef.current = null;
   };
 
-  const getPositionPromise = () => {
-    return new Promise((resolve, reject) => {
+  const getPositionPromise = () =>
+    new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, GEO_OPTIONS);
     });
-  };
 
   const primeGpsPermissionRequest = () => {
     if (!navigator.geolocation) return;
@@ -581,7 +561,6 @@ function Home({ repartidorId, user, onLogout }) {
       return;
     }
 
-    const cadeteId = getCadeteIdentity();
     if (!cadeteId) {
       setGeoStatus("error");
       setGeoError("No pudimos identificar al repartidor logueado.");
@@ -665,7 +644,6 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   useEffect(() => {
-    const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
     const admissionRef = ref(rtdb, `onlineAdmissionRequests/${cadeteId}`);
@@ -700,13 +678,10 @@ function Home({ repartidorId, user, onLogout }) {
       }
     );
 
-    return () => {
-      off(admissionRef, "value", unsubscribe);
-    };
-  }, [repartidorId, pedidoActivo, workStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => off(admissionRef, "value", unsubscribe);
+  }, [cadeteId, pedidoActivo, workStatus]);
 
   useEffect(() => {
-    const cadeteId = getCadeteIdentity();
     if (!cadeteId) return;
 
     const liveRef = ref(rtdb, `driversLive/${cadeteId}`);
@@ -733,10 +708,48 @@ function Home({ repartidorId, user, onLogout }) {
       }
     );
 
-    return () => {
-      off(liveRef, "value", unsubscribe);
-    };
-  }, [repartidorId, workStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => off(liveRef, "value", unsubscribe);
+  }, [cadeteId, workStatus]);
+
+  // NUEVO: escuchar ofertas desde Realtime
+  useEffect(() => {
+    if (!cadeteId) return;
+
+    const offersRef = ref(rtdb, `driverOffers/${cadeteId}`);
+
+    const unsubscribe = onValue(
+      offersRef,
+      (snapshot) => {
+        const offers = snapshot.val() || null;
+
+        if (!offers) {
+          setPedidoOfertado(null);
+          return;
+        }
+
+        const pendingOffers = Object.entries(offers)
+          .map(([orderId, offer]) => ({
+            ...offer,
+            id: offer?.orderId || orderId,
+            orderId: offer?.orderId || orderId,
+          }))
+          .filter((offer) => offer?.status === "pending")
+          .sort((a, b) => Number(b?.offeredAt || 0) - Number(a?.offeredAt || 0));
+
+        if (pendingOffers.length === 0) {
+          setPedidoOfertado(null);
+          return;
+        }
+
+        setPedidoOfertado(pendingOffers[0]);
+      },
+      (error) => {
+        console.error("❌ Error escuchando driverOffers:", error);
+      }
+    );
+
+    return () => off(offersRef, "value", unsubscribe);
+  }, [cadeteId]);
 
   useEffect(() => {
     if (!pedidoActivo || !serverPresence) return;
@@ -750,38 +763,7 @@ function Home({ repartidorId, user, onLogout }) {
     });
   }, [pedidoActivo, serverPresence]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!repartidorId) return;
-
-    const q = query(
-      collection(db, "orders"),
-      where("status", "==", "ofertado"),
-      where("offer.cadeteId", "==", String(repartidorId))
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snap) => {
-        if (snap.empty) {
-          setPedidoOfertado(null);
-          return;
-        }
-
-        const docSnap = snap.docs[0];
-
-        setPedidoOfertado({
-          ...docSnap.data(),
-          _docId: docSnap.id,
-        });
-      },
-      (error) => {
-        console.error("❌ Error escuchando pedidos ofertados:", error);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [repartidorId]);
-
+  // Pedido activo sigue viniendo de Firestore
   useEffect(() => {
     if (!repartidorId) return;
 
@@ -815,87 +797,104 @@ function Home({ repartidorId, user, onLogout }) {
   }, [repartidorId]);
 
   useEffect(() => {
-    return () => {
-      stopGpsWatch();
-    };
+    return () => stopGpsWatch();
   }, []);
 
-  const resolveOrderDocId = (pedido) => pedido?._docId || pedido?.id;
+  const resolveOrderDocId = (pedido) =>
+    pedido?._docId || pedido?.orderId || pedido?.id;
 
-  const aceptarOferta = async (pedido) => {
-    const orderDocId = resolveOrderDocId(pedido);
-    if (!orderDocId) return;
+  const aceptarOferta = async (oferta) => {
+    const orderDocId = resolveOrderDocId(oferta);
+    if (!orderDocId || !cadeteId) return;
 
     try {
-      await updateDoc(doc(db, "orders", orderDocId), {
+      const orderRef = doc(db, "orders", orderDocId);
+      const driverOfferRef = ref(rtdb, `driverOffers/${cadeteId}/${orderDocId}`);
+      const queueRef = ref(rtdb, `orderQueue/${orderDocId}`);
+
+      await updateDoc(orderRef, {
         status: "asignado",
-        assignedCadeteId: String(repartidorId),
+        serverStatus: "matched",
+        assignmentStatus: "assigned",
+        assignedCadeteId: String(cadeteId),
         assignedAt: serverTimestamp(),
-        estadoOperativoLocal: "app_accepted",
+        assignedCadete: {
+          cadeteId: String(cadeteId),
+          nombre: ficha.nombre || "",
+          apellido: ficha.apellido || "",
+          movilidad: ficha.movilidad || "",
+        },
         "offer.state": "accepted",
         "offer.respondedAt": serverTimestamp(),
       });
 
-      setPedidoOfertado(null);
-
-      const nextPedidoActivo = {
-        ...pedido,
-        _docId: orderDocId,
-      };
-
-      setPedidoActivo(nextPedidoActivo);
-      setWorkStatus("busy");
-
-      if (serverPresence) {
-        await patchDriverLive({
-          estadoCadete: "en_pedido",
-          workStatus: "busy",
-          availableForOffers: false,
-          currentOrderId: orderDocId,
-          presenceReason: "offer_accepted",
-        });
-      }
+      await patchDriverLive({
+        estadoCadete: "en_pedido",
+        workStatus: "busy",
+        availableForOffers: false,
+        currentOrderId: orderDocId,
+        presenceReason: "offer_accepted",
+      });
 
       await patchAdmissionRequest({
         estadoCadete: "en_pedido",
         workStatus: "busy",
         currentOrderId: orderDocId,
       });
+
+      await remove(driverOfferRef);
+      await remove(queueRef);
+
+      setPedidoOfertado(null);
+      setWorkStatus("busy");
     } catch (error) {
       console.error("❌ Error aceptando oferta:", error);
     }
   };
 
-  const rechazarOferta = async (pedido, reason = "rejected") => {
-    const orderDocId = resolveOrderDocId(pedido);
-    if (!orderDocId) return;
+  const rechazarOferta = async (oferta, reason = "rejected") => {
+    const orderDocId = resolveOrderDocId(oferta);
+    if (!orderDocId || !cadeteId) return;
 
     try {
+      const driverOfferRef = ref(rtdb, `driverOffers/${cadeteId}/${orderDocId}`);
+      const queueRef = ref(rtdb, `orderQueue/${orderDocId}`);
+      const queueSnap = await get(queueRef);
+
+      const existingQueue = queueSnap.val() || null;
+
+      const nextExcluded = Array.isArray(existingQueue?.excludedCadeteIds)
+        ? [...new Set([...existingQueue.excludedCadeteIds, cadeteId])]
+        : [cadeteId];
+
+      if (existingQueue) {
+        await update(queueRef, {
+          matchStatus: "ready_for_match",
+          currentOfferCadeteId: null,
+          currentOffer: null,
+          excludedCadeteIds: nextExcluded,
+        });
+      }
+
       await updateDoc(doc(db, "orders", orderDocId), {
         status: "pendiente",
-        assignmentScope: "local",
-        estadoOperativoLocal: "pendiente_local",
-
-        assignedCadeteId: deleteField(),
-        assignedCadete: deleteField(),
-        assignedAt: deleteField(),
-
-        assignmentMode: deleteField(),
-        assignmentSource: deleteField(),
-        assignmentConfirmedAt: deleteField(),
-        assignmentConfirmedBy: deleteField(),
-        resolvedByFlow: deleteField(),
-
+        serverStatus: "validated_online",
+        assignmentStatus: reason === "expired" ? "offer_expired" : "offer_rejected",
         "offer.state": reason,
         "offer.respondedAt": serverTimestamp(),
       });
+
+      await remove(driverOfferRef);
 
       setPedidoOfertado(null);
 
       if (serverPresence) {
         await patchDriverLive({
-          availableForOffers: false,
-          presenceReason: reason === "rejected" ? "offer_rejected" : "offer_expired",
+          availableForOffers: true,
+          estadoCadete: "disponible",
+          workStatus: "idle",
+          currentOrderId: null,
+          presenceReason: reason === "expired" ? "offer_expired" : "offer_rejected",
         });
       }
     } catch (error) {

@@ -1,5 +1,3 @@
-// src/components/driveractionsheet/DriverActionSheet.jsx
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./DriverActionSheet.css";
 
@@ -11,7 +9,6 @@ function formatMoney(value) {
   if (value == null || value === "") return null;
 
   const num = Number(value);
-
   if (Number.isNaN(num)) return null;
 
   return new Intl.NumberFormat("es-AR", {
@@ -25,21 +22,33 @@ function getPedidoResumen(pedido) {
   if (!pedido) return null;
 
   return {
-    id: pedido.id || pedido?.offer?.orderId || pedido?._docId || "—",
+    id: pedido.orderId || pedido.id || pedido?._docId || "—",
     origen:
+      pedido?.pickup?.address ||
       pedido.originInput ||
       pedido.origin ||
       pedido?.customerDefaultAddress?.address ||
       pedido?.customerSnapshot?.direccion ||
       "Origen no informado",
     destino:
+      pedido?.dropoff?.address ||
       pedido.destinationInput ||
       pedido.destination ||
       pedido?.destinationAddress?.address ||
       "Destino no informado",
-    precio: pedido.price ?? pedido?.breakdown?.total ?? null,
-    km: pedido.km ?? pedido?.breakdown?.km ?? null,
-    tipo: pedido.type || pedido.serviceType || pedido.tipo || "Envío",
+    precio:
+      pedido.price ??
+      pedido?.breakdown?.total ??
+      null,
+    km:
+      pedido.km ??
+      pedido?.breakdown?.km ??
+      null,
+    tipo:
+      pedido.type ||
+      pedido.serviceType ||
+      pedido.tipo ||
+      "Envío",
   };
 }
 
@@ -122,13 +131,19 @@ function getNextSheetMode(currentMode, direction) {
 function getOfferKey(pedido) {
   if (!pedido) return "";
 
-  const docId = pedido?._docId || pedido?.id || "";
-  const offeredAt =
-    pedido?.offer?.offeredAt?.seconds ||
-    pedido?.offer?.offeredAt?.toMillis?.() ||
-    "";
+  const orderId = pedido?.orderId || pedido?.id || pedido?._docId || "";
+  const offeredAt = pedido?.offeredAt || "";
 
-  return `${docId}__${offeredAt}`;
+  return `${orderId}__${offeredAt}`;
+}
+
+function getRemainingSeconds(pedido, fallbackSeconds) {
+  if (!pedido?.expiresAt) return fallbackSeconds;
+
+  const diffMs = Number(pedido.expiresAt) - Date.now();
+  const diffSeconds = Math.ceil(diffMs / 1000);
+
+  return Math.max(0, diffSeconds);
 }
 
 export default function DriverActionSheet({
@@ -183,10 +198,11 @@ export default function DriverActionSheet({
   useEffect(() => {
     if (!pedidoOfertado) {
       processedOfferKeyRef.current = "";
+      setRestante(segundosOferta);
       return;
     }
 
-    setRestante(segundosOferta);
+    setRestante(getRemainingSeconds(pedidoOfertado, segundosOferta));
     setSheetMode(SHEET_EXPANDED);
 
     if (navigator.vibrate) {
@@ -199,8 +215,10 @@ export default function DriverActionSheet({
     });
 
     const interval = setInterval(() => {
-      setRestante((prev) => {
-        if (prev <= 1) {
+      setRestante(() => {
+        const nextRemaining = getRemainingSeconds(pedidoOfertado, segundosOferta);
+
+        if (nextRemaining <= 0) {
           clearInterval(interval);
 
           if (
@@ -220,7 +238,7 @@ export default function DriverActionSheet({
           return 0;
         }
 
-        return prev - 1;
+        return nextRemaining;
       });
     }, 1000);
 
@@ -529,3 +547,5 @@ export default function DriverActionSheet({
     </section>
   );
 }
+
+export default DriverActionSheet;
