@@ -158,6 +158,9 @@ function DriverActionSheet({
   });
 
   const processedOfferKeyRef = useRef("");
+  const announcedOfferKeyRef = useRef("");
+  const timeoutHandledKeyRef = useRef("");
+  const intervalRef = useRef(null);
   const audioRef = useRef(null);
 
   const resumenOferta = useMemo(
@@ -191,6 +194,10 @@ function DriverActionSheet({
     audioRef.current.preload = "auto";
 
     return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
@@ -199,69 +206,97 @@ function DriverActionSheet({
   }, []);
 
   useEffect(() => {
-    if (!pedidoOfertado) {
+    if (!pedidoOfertado || !activeOfferKey) {
       processedOfferKeyRef.current = "";
+      announcedOfferKeyRef.current = "";
+      timeoutHandledKeyRef.current = "";
       setRestante(segundosOferta);
+
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+
       return;
     }
 
-    setRestante(getRemainingSeconds(pedidoOfertado, segundosOferta));
-    setSheetMode(SHEET_EXPANDED);
+    const initialRemaining = getRemainingSeconds(pedidoOfertado, segundosOferta);
+    setRestante(initialRemaining);
 
-    if (navigator.vibrate) {
-      navigator.vibrate([250, 120, 250]);
-    }
+    if (announcedOfferKeyRef.current !== activeOfferKey) {
+      announcedOfferKeyRef.current = activeOfferKey;
+      timeoutHandledKeyRef.current = "";
 
-    if (audioRef.current) {
-      try {
-        audioRef.current.currentTime = 0;
-        const playPromise = audioRef.current.play();
+      setSheetMode(SHEET_EXPANDED);
 
-        if (playPromise?.catch) {
-          playPromise.catch((error) => {
-            console.warn("⚠️ No se pudo reproducir el sonido de oferta:", error);
-          });
+      if (navigator.vibrate) {
+        try {
+          navigator.vibrate([250, 120, 250]);
+        } catch (error) {
+          console.warn("⚠️ Vibración no disponible:", error);
         }
-      } catch (error) {
-        console.warn("⚠️ Error reproduciendo sonido de oferta:", error);
       }
+
+      if (audioRef.current) {
+        try {
+          audioRef.current.currentTime = 0;
+          const playPromise = audioRef.current.play();
+
+          if (playPromise?.catch) {
+            playPromise.catch((error) => {
+              console.warn("⚠️ No se pudo reproducir el sonido de oferta:", error);
+            });
+          }
+        } catch (error) {
+          console.warn("⚠️ Error reproduciendo sonido de oferta:", error);
+        }
+      }
+
+      console.log("[SHEET] nueva oferta detectada", {
+        activeOfferKey,
+        pedidoOfertado,
+      });
     }
 
-    console.log("[SHEET] nueva oferta detectada", {
-      activeOfferKey,
-      pedidoOfertado,
-    });
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
 
-    const interval = setInterval(() => {
-      setRestante(() => {
-        const nextRemaining = getRemainingSeconds(pedidoOfertado, segundosOferta);
+    intervalRef.current = setInterval(() => {
+      const nextRemaining = getRemainingSeconds(pedidoOfertado, segundosOferta);
+      setRestante(nextRemaining);
 
-        if (nextRemaining <= 0) {
-          clearInterval(interval);
-
-          if (
-            activeOfferKey &&
-            processedOfferKeyRef.current !== activeOfferKey
-          ) {
-            processedOfferKeyRef.current = activeOfferKey;
-
-            console.log("[SHEET] timeout oferta", {
-              activeOfferKey,
-              pedidoOfertado,
-            });
-
-            onTimeoutOferta?.(pedidoOfertado);
-          }
-
-          return 0;
+      if (nextRemaining <= 0) {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
         }
 
-        return nextRemaining;
-      });
+        if (
+          activeOfferKey &&
+          timeoutHandledKeyRef.current !== activeOfferKey &&
+          processedOfferKeyRef.current !== activeOfferKey
+        ) {
+          timeoutHandledKeyRef.current = activeOfferKey;
+          processedOfferKeyRef.current = activeOfferKey;
+
+          console.log("[SHEET] timeout oferta", {
+            activeOfferKey,
+            pedidoOfertado,
+          });
+
+          onTimeoutOferta?.(pedidoOfertado);
+        }
+      }
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [pedidoOfertado, segundosOferta, onTimeoutOferta, activeOfferKey]);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [activeOfferKey, pedidoOfertado, segundosOferta, onTimeoutOferta]);
 
   useEffect(() => {
     if (pedidoActivo) {
@@ -313,9 +348,9 @@ function DriverActionSheet({
     event.preventDefault();
     event.stopPropagation();
 
-    if (!pedidoOfertado) return;
+    if (!pedidoOfertado || !activeOfferKey) return;
 
-    if (activeOfferKey && processedOfferKeyRef.current === activeOfferKey) {
+    if (processedOfferKeyRef.current === activeOfferKey) {
       console.log("[SHEET] aceptar ignorado, oferta ya procesada", {
         activeOfferKey,
       });
@@ -336,9 +371,9 @@ function DriverActionSheet({
     event.preventDefault();
     event.stopPropagation();
 
-    if (!pedidoOfertado) return;
+    if (!pedidoOfertado || !activeOfferKey) return;
 
-    if (activeOfferKey && processedOfferKeyRef.current === activeOfferKey) {
+    if (processedOfferKeyRef.current === activeOfferKey) {
       console.log("[SHEET] rechazo ignorado, oferta ya procesada", {
         activeOfferKey,
       });
