@@ -355,8 +355,54 @@ function Home({ repartidorId, user, onLogout }) {
     }
   };
 
+  const resolveOrderDocId = (pedido) =>
+    pedido?._docId || pedido?.orderId || pedido?.id;
+
+  const releasePendingOfferOnOffline = async (offer) => {
+    const orderDocId = resolveOrderDocId(offer);
+    if (!orderDocId || !cadeteId) return;
+
+    try {
+      const driverOfferRef = ref(rtdb, `driverOffers/${cadeteId}/${orderDocId}`);
+      const queueRef = ref(rtdb, `orderQueue/${orderDocId}`);
+      const queueSnap = await get(queueRef);
+
+      const existingQueue = queueSnap.val() || null;
+
+      if (existingQueue) {
+        const nextExcluded = Array.isArray(existingQueue?.excludedCadeteIds)
+          ? [...new Set([...existingQueue.excludedCadeteIds, cadeteId])]
+          : [cadeteId];
+
+        await update(queueRef, {
+          matchStatus: "ready_for_match",
+          currentOfferCadeteId: null,
+          currentOffer: null,
+          excludedCadeteIds: nextExcluded,
+        });
+      }
+
+      await updateDoc(doc(db, "orders", orderDocId), {
+        status: "pendiente",
+        serverStatus: "validated_online",
+        assignmentStatus: "offer_expired",
+        "offer.state": "expired",
+        "offer.respondedAt": serverTimestamp(),
+      });
+
+      await remove(driverOfferRef);
+    } catch (error) {
+      console.error("❌ Error liberando oferta pendiente al quedar offline:", error);
+    }
+  };
+
   const markOffline = async (reason = "manual_offline") => {
     stopGpsWatch();
+
+    if (pedidoOfertado) {
+      await releasePendingOfferOnOffline(pedidoOfertado);
+    }
+
     setLiveCoords(null);
     setGeoStatus("idle");
     setGeoError("");
@@ -808,9 +854,6 @@ function Home({ repartidorId, user, onLogout }) {
   useEffect(() => {
     return () => stopGpsWatch();
   }, []);
-
-  const resolveOrderDocId = (pedido) =>
-    pedido?._docId || pedido?.orderId || pedido?.id;
 
   const aceptarOferta = async (oferta) => {
     const orderDocId = resolveOrderDocId(oferta);
