@@ -325,6 +325,16 @@ function Home({ repartidorId, user, onLogout }) {
     }
   };
 
+  const removeDriverOffers = async () => {
+    if (!cadeteId) return;
+
+    try {
+      await set(ref(rtdb, `driverOffers/${cadeteId}`), null);
+    } catch (error) {
+      console.error("❌ Error removiendo driverOffers:", error);
+    }
+  };
+
   const patchDriverLive = async (partialPayload = {}) => {
     if (!cadeteId) return;
 
@@ -373,6 +383,7 @@ function Home({ repartidorId, user, onLogout }) {
 
     await removeAdmissionRequest();
     await removeDriverLive();
+    await removeDriverOffers();
 
     sessionIdRef.current = null;
   };
@@ -711,7 +722,6 @@ function Home({ repartidorId, user, onLogout }) {
     return () => off(liveRef, "value", unsubscribe);
   }, [cadeteId, workStatus]);
 
-  // NUEVO: escuchar ofertas desde Realtime
   useEffect(() => {
     if (!cadeteId) return;
 
@@ -763,7 +773,6 @@ function Home({ repartidorId, user, onLogout }) {
     });
   }, [pedidoActivo, serverPresence]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Pedido activo sigue viniendo de Firestore
   useEffect(() => {
     if (!repartidorId) return;
 
