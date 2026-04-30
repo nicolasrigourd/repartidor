@@ -94,13 +94,37 @@ function HoldToConfirmButton({
   );
 }
 
+function resolveUiMode({
+  transientMode,
+  admissionState,
+  serverPresence,
+  pedidoOfertado,
+  pedidoActivo,
+}) {
+  if (transientMode === "starting") return "starting";
+  if (transientMode === "error") return "error";
+
+  if (pedidoActivo) return "busy";
+
+  if (serverPresence?.currentOrderId) return "busy";
+
+  if (pedidoOfertado) return "online";
+
+  if (serverPresence?.online === true) return "online";
+
+  if (admissionState?.admissionStatus === "approved") return "online";
+  if (admissionState?.admissionStatus === "pending") return "pending_admission";
+  if (admissionState?.admissionStatus === "rejected") return "error";
+
+  return "offline";
+}
+
 function Home({ repartidorId, user, onLogout }) {
   const ficha = user?.ficha || user || {};
   const nombreCompleto = `${ficha.nombre || ""} ${ficha.apellido || ""}`.trim();
 
   const [activeTab, setActiveTab] = useState("home");
 
-  const [workStatus, setWorkStatus] = useState("offline");
   const [geoStatus, setGeoStatus] = useState("idle");
   const [geoError, setGeoError] = useState("");
   const [liveCoords, setLiveCoords] = useState(null);
@@ -110,6 +134,12 @@ function Home({ repartidorId, user, onLogout }) {
 
   const [admissionState, setAdmissionState] = useState(null);
   const [serverPresence, setServerPresence] = useState(null);
+
+  const [transientMode, setTransientMode] = useState(null);
+  const [admissionLoaded, setAdmissionLoaded] = useState(false);
+  const [liveLoaded, setLiveLoaded] = useState(false);
+  const [offersLoaded, setOffersLoaded] = useState(false);
+  const [activeOrderLoaded, setActiveOrderLoaded] = useState(false);
 
   const watchIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -137,6 +167,24 @@ function Home({ repartidorId, user, onLogout }) {
     const id = cadeteId || "unknown";
     return `sess_${id}_${Date.now()}`;
   };
+
+  const isBootstrapping = !admissionLoaded || !liveLoaded || !offersLoaded || !activeOrderLoaded;
+
+  const workStatus = useMemo(
+    () =>
+      resolveUiMode({
+        transientMode,
+        admissionState,
+        serverPresence,
+        pedidoOfertado,
+        pedidoActivo,
+      }),
+    [transientMode, admissionState, serverPresence, pedidoOfertado, pedidoActivo]
+  );
+
+  const shouldTrackGps = useMemo(() => {
+    return ["pending_admission", "online", "busy"].includes(workStatus);
+  }, [workStatus]);
 
   const statusCopy = useMemo(() => {
     if (workStatus === "busy") {
@@ -406,10 +454,7 @@ function Home({ repartidorId, user, onLogout }) {
     setLiveCoords(null);
     setGeoStatus("idle");
     setGeoError("");
-    setWorkStatus("offline");
-    setAdmissionState(null);
-    setServerPresence(null);
-    setPedidoOfertado(null);
+    setTransientMode(null);
 
     gpsPrimeRef.current = {
       status: "idle",
@@ -430,6 +475,10 @@ function Home({ repartidorId, user, onLogout }) {
     await removeAdmissionRequest();
     await removeDriverLive();
     await removeDriverOffers();
+
+    setAdmissionState(null);
+    setServerPresence(null);
+    setPedidoOfertado(null);
 
     sessionIdRef.current = null;
   };
@@ -503,7 +552,7 @@ function Home({ repartidorId, user, onLogout }) {
 
     setGeoError(message);
     setGeoStatus(nextStatus);
-    setWorkStatus("error");
+    setTransientMode("error");
 
     await writeAdmissionRequest({
       gpsStatus: gpsState,
@@ -513,6 +562,9 @@ function Home({ repartidorId, user, onLogout }) {
   };
 
   const startGpsWatch = () => {
+    if (!navigator.geolocation) return;
+    if (watchIdRef.current != null) return;
+
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
         const nextCoords = {
@@ -534,7 +586,7 @@ function Home({ repartidorId, user, onLogout }) {
           estadoCadete: pedidoActivo ? "en_pedido" : "disponible",
           workStatus: pedidoActivo ? "busy" : "idle",
           currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
-          requestReason: pedidoActivo ? "tracking_order" : "tracking_pending_admission",
+          requestReason: pedidoActivo ? "tracking_order" : "tracking_operational",
         });
 
         if (serverPresence) {
@@ -583,7 +635,7 @@ function Home({ repartidorId, user, onLogout }) {
 
         setGeoError(message);
         setGeoStatus(nextStatus);
-        setWorkStatus("error");
+        setTransientMode("error");
 
         await patchAdmissionRequest({
           trackingActive: false,
@@ -614,24 +666,22 @@ function Home({ repartidorId, user, onLogout }) {
     if (!navigator.geolocation) {
       setGeoStatus("unavailable");
       setGeoError("Este dispositivo no soporta geolocalización.");
-      setWorkStatus("error");
+      setTransientMode("error");
       return;
     }
 
     if (!cadeteId) {
       setGeoStatus("error");
       setGeoError("No pudimos identificar al repartidor logueado.");
-      setWorkStatus("error");
+      setTransientMode("error");
       return;
     }
 
     sessionIdRef.current = createSessionId();
 
-    setWorkStatus("starting");
+    setTransientMode("starting");
     setGeoStatus("searching");
     setGeoError("");
-    setAdmissionState(null);
-    setServerPresence(null);
 
     stopGpsWatch();
 
@@ -673,7 +723,6 @@ function Home({ repartidorId, user, onLogout }) {
 
     setLiveCoords(coords);
     setGeoStatus("granted");
-    setWorkStatus("pending_admission");
 
     await writeAdmissionRequest({
       gpsStatus: "ok",
@@ -681,6 +730,7 @@ function Home({ repartidorId, user, onLogout }) {
       coords,
     });
 
+    setTransientMode(null);
     startGpsWatch();
   };
 
@@ -710,14 +760,13 @@ function Home({ repartidorId, user, onLogout }) {
       (snapshot) => {
         const value = snapshot.val() || null;
         setAdmissionState(value);
+        setAdmissionLoaded(true);
 
         if (!value) return;
 
         if (value.admissionStatus === "approved") {
-          if (workStatus !== "busy") {
-            setWorkStatus(pedidoActivo ? "busy" : "online");
-          }
           setGeoError("");
+          setTransientMode(null);
           return;
         }
 
@@ -727,16 +776,17 @@ function Home({ repartidorId, user, onLogout }) {
             : "No pudimos habilitarte.";
 
           setGeoError(`No habilitado: ${reasons}`);
-          setWorkStatus("error");
+          setTransientMode("error");
         }
       },
       (error) => {
         console.error("❌ Error escuchando onlineAdmissionRequests:", error);
+        setAdmissionLoaded(true);
       }
     );
 
     return () => off(admissionRef, "value", unsubscribe);
-  }, [cadeteId, pedidoActivo, workStatus]);
+  }, [cadeteId]);
 
   useEffect(() => {
     if (!cadeteId) return;
@@ -748,25 +798,16 @@ function Home({ repartidorId, user, onLogout }) {
       (snapshot) => {
         const value = snapshot.val() || null;
         setServerPresence(value);
-
-        if (!value) return;
-
-        if (value.currentOrderId && workStatus !== "busy") {
-          setWorkStatus("busy");
-          return;
-        }
-
-        if (value.online === true && !value.currentOrderId && workStatus !== "busy") {
-          setWorkStatus("online");
-        }
+        setLiveLoaded(true);
       },
       (error) => {
         console.error("❌ Error escuchando driversLive:", error);
+        setLiveLoaded(true);
       }
     );
 
     return () => off(liveRef, "value", unsubscribe);
-  }, [cadeteId, workStatus]);
+  }, [cadeteId]);
 
   useEffect(() => {
     if (!cadeteId) return;
@@ -777,6 +818,7 @@ function Home({ repartidorId, user, onLogout }) {
       offersRef,
       (snapshot) => {
         const offers = snapshot.val() || null;
+        setOffersLoaded(true);
 
         if (!offers) {
           setPedidoOfertado(null);
@@ -801,23 +843,12 @@ function Home({ repartidorId, user, onLogout }) {
       },
       (error) => {
         console.error("❌ Error escuchando driverOffers:", error);
+        setOffersLoaded(true);
       }
     );
 
     return () => off(offersRef, "value", unsubscribe);
   }, [cadeteId]);
-
-  useEffect(() => {
-    if (!pedidoActivo || !serverPresence) return;
-
-    patchDriverLive({
-      estadoCadete: "en_pedido",
-      workStatus: "busy",
-      availableForOffers: false,
-      currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
-      presenceReason: "order_active",
-    });
-  }, [pedidoActivo, serverPresence]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!repartidorId) return;
@@ -831,6 +862,8 @@ function Home({ repartidorId, user, onLogout }) {
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
+        setActiveOrderLoaded(true);
+
         if (snap.empty) {
           setPedidoActivo(null);
           return;
@@ -845,11 +878,35 @@ function Home({ repartidorId, user, onLogout }) {
       },
       (error) => {
         console.error("❌ Error escuchando pedido activo:", error);
+        setActiveOrderLoaded(true);
       }
     );
 
     return () => unsubscribe();
   }, [repartidorId]);
+
+  useEffect(() => {
+    if (!pedidoActivo || !serverPresence) return;
+
+    patchDriverLive({
+      estadoCadete: "en_pedido",
+      workStatus: "busy",
+      availableForOffers: false,
+      currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
+      presenceReason: "order_active",
+    });
+  }, [pedidoActivo, serverPresence]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (isBootstrapping) return;
+
+    if (shouldTrackGps) {
+      startGpsWatch();
+      return;
+    }
+
+    stopGpsWatch();
+  }, [shouldTrackGps, isBootstrapping]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     return () => stopGpsWatch();
@@ -898,7 +955,7 @@ function Home({ repartidorId, user, onLogout }) {
       await remove(queueRef);
 
       setPedidoOfertado(null);
-      setWorkStatus("busy");
+      setTransientMode(null);
     } catch (error) {
       console.error("❌ Error aceptando oferta:", error);
     }
@@ -949,6 +1006,12 @@ function Home({ repartidorId, user, onLogout }) {
           presenceReason: reason === "expired" ? "offer_expired" : "offer_rejected",
         });
       }
+
+      await patchAdmissionRequest({
+        estadoCadete: "disponible",
+        workStatus: "idle",
+        currentOrderId: null,
+      });
     } catch (error) {
       console.error("❌ Error rechazando oferta:", error);
     }
@@ -982,13 +1045,21 @@ function Home({ repartidorId, user, onLogout }) {
         currentOrderId: null,
       });
 
-      setWorkStatus("online");
+      setTransientMode(null);
     } catch (error) {
       console.error("❌ Error finalizando pedido:", error);
     }
   };
 
   const renderMainAction = () => {
+    if (isBootstrapping) {
+      return (
+        <button className="driver-main-action driver-main-action--loading" disabled>
+          Sincronizando estado...
+        </button>
+      );
+    }
+
     if (workStatus === "offline") {
       return (
         <HoldToConfirmButton
@@ -1062,7 +1133,7 @@ function Home({ repartidorId, user, onLogout }) {
       );
     }
 
-    if (admissionState) {
+    if (admissionState?.admissionStatus === "pending") {
       return (
         <div className="driver-mini-server-box">
           <strong>Estado server:</strong> En validación

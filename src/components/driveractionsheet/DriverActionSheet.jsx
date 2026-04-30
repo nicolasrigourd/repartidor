@@ -36,19 +36,9 @@ function getPedidoResumen(pedido) {
       pedido.destination ||
       pedido?.destinationAddress?.address ||
       "Destino no informado",
-    precio:
-      pedido.price ??
-      pedido?.breakdown?.total ??
-      null,
-    km:
-      pedido.km ??
-      pedido?.breakdown?.km ??
-      null,
-    tipo:
-      pedido.type ||
-      pedido.serviceType ||
-      pedido.tipo ||
-      "Envío",
+    precio: pedido.price ?? pedido?.breakdown?.total ?? null,
+    km: pedido.km ?? pedido?.breakdown?.km ?? null,
+    tipo: pedido.type || pedido.serviceType || pedido.tipo || "Envío",
   };
 }
 
@@ -168,6 +158,7 @@ function DriverActionSheet({
   });
 
   const processedOfferKeyRef = useRef("");
+  const audioRef = useRef(null);
 
   const resumenOferta = useMemo(
     () => getPedidoResumen(pedidoOfertado),
@@ -196,6 +187,18 @@ function DriverActionSheet({
   );
 
   useEffect(() => {
+    audioRef.current = new Audio("/sounds/oferta.mp3");
+    audioRef.current.preload = "auto";
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!pedidoOfertado) {
       processedOfferKeyRef.current = "";
       setRestante(segundosOferta);
@@ -207,6 +210,21 @@ function DriverActionSheet({
 
     if (navigator.vibrate) {
       navigator.vibrate([250, 120, 250]);
+    }
+
+    if (audioRef.current) {
+      try {
+        audioRef.current.currentTime = 0;
+        const playPromise = audioRef.current.play();
+
+        if (playPromise?.catch) {
+          playPromise.catch((error) => {
+            console.warn("⚠️ No se pudo reproducir el sonido de oferta:", error);
+          });
+        }
+      } catch (error) {
+        console.warn("⚠️ Error reproduciendo sonido de oferta:", error);
+      }
     }
 
     console.log("[SHEET] nueva oferta detectada", {
@@ -252,6 +270,8 @@ function DriverActionSheet({
   }, [pedidoActivo]);
 
   const handlePointerDown = (event) => {
+    if (event.target.closest(".driver-action-btn")) return;
+
     dragRef.current = {
       startY: event.clientY,
       currentY: event.clientY,
@@ -281,13 +301,16 @@ function DriverActionSheet({
     dragRef.current.dragging = false;
   };
 
-  const handleSheetTap = () => {
+  const handleSheetTap = (event) => {
+    if (event.target.closest(".driver-action-btn")) return;
+
     if (sheetMode === SHEET_COLLAPSED) {
       setSheetMode(SHEET_PEEK);
     }
   };
 
   const handleAceptarOferta = (event) => {
+    event.preventDefault();
     event.stopPropagation();
 
     if (!pedidoOfertado) return;
@@ -310,6 +333,7 @@ function DriverActionSheet({
   };
 
   const handleRechazarOferta = (event) => {
+    event.preventDefault();
     event.stopPropagation();
 
     if (!pedidoOfertado) return;
@@ -332,7 +356,9 @@ function DriverActionSheet({
   };
 
   const handleFinalizarPedido = (event) => {
+    event.preventDefault();
     event.stopPropagation();
+
     if (!pedidoActivo) return;
 
     console.log("[SHEET] finalizar pedido", {
@@ -402,6 +428,7 @@ function DriverActionSheet({
           <button
             type="button"
             className="driver-action-btn driver-action-btn--reject"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={handleRechazarOferta}
           >
             Rechazar
@@ -410,6 +437,7 @@ function DriverActionSheet({
           <button
             type="button"
             className="driver-action-btn driver-action-btn--accept"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={handleAceptarOferta}
           >
             Aceptar
@@ -475,6 +503,7 @@ function DriverActionSheet({
         <button
           type="button"
           className="driver-action-btn driver-action-btn--finish"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={handleFinalizarPedido}
         >
           Finalizar pedido
