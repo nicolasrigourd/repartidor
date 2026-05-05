@@ -23,6 +23,42 @@
   overflow: hidden;
 }
 
+.pedido-activo-hero--start {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(30, 64, 175, 0.96)),
+    #0f172a;
+}
+
+.pedido-activo-hero--pickup {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(2, 132, 199, 0.95)),
+    #075985;
+}
+
+.pedido-activo-hero--picked {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(217, 119, 6, 0.95)),
+    #92400e;
+}
+
+.pedido-activo-hero--dropoff {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(124, 58, 237, 0.95)),
+    #4c1d95;
+}
+
+.pedido-activo-hero--finish {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(22, 163, 74, 0.95)),
+    #14532d;
+}
+
+.pedido-activo-hero--done {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(71, 85, 105, 0.95)),
+    #334155;
+}
+
 .pedido-activo-hero::after {
   content: "";
   position: absolute;
@@ -31,7 +67,7 @@
   right: -74px;
   top: -86px;
   border-radius: 999px;
-  background: rgba(56, 189, 248, 0.25);
+  background: rgba(255, 255, 255, 0.16);
   pointer-events: none;
 }
 
@@ -81,9 +117,9 @@
   display: inline-flex;
   padding: 7px 11px;
   border-radius: 999px;
-  background: rgba(34, 197, 94, 0.18);
-  border: 1px solid rgba(134, 239, 172, 0.35);
-  color: #bbf7d0;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #f8fafc;
   font-size: 12px;
   font-weight: 800;
 }
@@ -97,7 +133,7 @@
 
 .pedido-activo-status p {
   margin: 0;
-  color: #dbeafe;
+  color: #e0f2fe;
   font-size: 15px;
   line-height: 1.45;
   max-width: 520px;
@@ -112,13 +148,17 @@
   z-index: 1;
 }
 
+.pedido-activo-main-actions--single {
+  grid-template-columns: 1fr;
+}
+
 .pedido-activo-route-btn,
 .pedido-activo-primary-btn {
-  min-height: 54px;
+  min-height: 56px;
   border-radius: 18px;
   border: none;
-  font-size: 15px;
-  font-weight: 900;
+  font-size: 16px;
+  font-weight: 950;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -134,14 +174,66 @@
 }
 
 .pedido-activo-primary-btn {
-  background: #22c55e;
-  color: #052e16;
-  box-shadow: 0 16px 30px rgba(34, 197, 94, 0.27);
+  color: #ffffff;
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.22);
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.pedido-activo-primary-btn:active {
+  transform: scale(0.985);
 }
 
 .pedido-activo-primary-btn:disabled {
   opacity: 0.72;
   cursor: not-allowed;
+}
+
+.pedido-activo-primary-btn--start {
+  background: #22c55e;
+  color: #052e16;
+  box-shadow: 0 16px 30px rgba(34, 197, 94, 0.27);
+}
+
+.pedido-activo-primary-btn--pickup {
+  background: #0ea5e9;
+  color: #082f49;
+  box-shadow: 0 16px 30px rgba(14, 165, 233, 0.27);
+}
+
+.pedido-activo-primary-btn--picked {
+  background: #f59e0b;
+  color: #451a03;
+  box-shadow: 0 16px 30px rgba(245, 158, 11, 0.28);
+}
+
+.pedido-activo-primary-btn--dropoff {
+  background: #a78bfa;
+  color: #2e1065;
+  box-shadow: 0 16px 30px rgba(167, 139, 250, 0.28);
+}
+
+.pedido-activo-primary-btn--finish {
+  background: #16a34a;
+  color: #052e16;
+  box-shadow: 0 16px 30px rgba(22, 163, 74, 0.28);
+}
+
+.pedido-activo-primary-btn--done {
+  background: #64748b;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.pedido-activo-action-helper {
+  position: relative;
+  z-index: 1;
+  margin: 10px 2px 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .pedido-activo-inline-error {
@@ -344,6 +436,18 @@
   text-align: center;
   text-decoration: none;
   padding: 0 8px;
+}
+
+.pedido-activo-map-actions a:nth-child(1) {
+  background: #1d4ed8;
+}
+
+.pedido-activo-map-actions a:nth-child(2) {
+  background: #15803d;
+}
+
+.pedido-activo-map-actions a:nth-child(3) {
+  background: #0f172a;
 }
 
 .is-disabled {

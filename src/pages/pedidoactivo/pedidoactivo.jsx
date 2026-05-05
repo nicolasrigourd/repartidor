@@ -15,51 +15,79 @@ const STEP_CONFIG = {
   go_to_pickup: {
     badge: "Pedido asignado",
     title: "Pedido listo para comenzar",
-    subtitle: "Revisá los datos del retiro y comenzá el recorrido.",
+    subtitle: "Revisá origen, destino, notas e importe antes de iniciar el recorrido.",
     actionLabel: "Comenzar",
     nextStep: "started_pickup",
     nextStatus: "started_pickup",
     routeTarget: "pickup",
+    openMapOnAdvance: true,
+    buttonVariant: "start",
+    helperText: "Al comenzar se abrirá la ruta al punto de retiro.",
   },
 
   started_pickup: {
     badge: "En camino al origen",
     title: "Dirigite al punto de retiro",
-    subtitle: "Usá el mapa para llegar al origen indicado.",
+    subtitle: "Cuando llegues al origen, volvé a Zeus y confirmá tu llegada.",
     actionLabel: "Llegué al origen",
     nextStep: "arrived_pickup",
     nextStatus: "arrived_pickup",
     routeTarget: "pickup",
+    openMapOnAdvance: false,
+    buttonVariant: "pickup",
+    helperText: "Confirmá solo cuando estés en el punto de retiro.",
   },
 
   arrived_pickup: {
     badge: "En origen",
     title: "Retirá el pedido",
-    subtitle: "Confirmá que retiraste correctamente el pedido.",
+    subtitle: "Verificá los datos, revisá las notas y confirmá cuando tengas el pedido.",
     actionLabel: "Pedido retirado",
     nextStep: "go_to_dropoff",
     nextStatus: "picked_up",
-    routeTarget: "pickup",
+    routeTarget: "dropoff",
+    openMapOnAdvance: true,
+    buttonVariant: "picked",
+    helperText: "Al confirmar el retiro se abrirá la ruta al destino.",
   },
 
   go_to_dropoff: {
     badge: "En camino al destino",
     title: "Dirigite al domicilio del cliente",
-    subtitle: "Llevá el pedido al destino indicado.",
+    subtitle: "Cuando llegues al destino, volvé a Zeus y confirmá tu llegada.",
     actionLabel: "Llegué al destino",
     nextStep: "arrived_dropoff",
     nextStatus: "arrived_dropoff",
     routeTarget: "dropoff",
+    openMapOnAdvance: false,
+    buttonVariant: "dropoff",
+    helperText: "Confirmá solo cuando estés en el domicilio de entrega.",
   },
 
   arrived_dropoff: {
     badge: "En destino",
     title: "Entregá el pedido",
-    subtitle: "Confirmá la entrega cuando finalices.",
+    subtitle: "Verificá el cobro si corresponde y finalizá la entrega.",
     actionLabel: "Finalizar pedido",
     nextStep: "delivered",
     nextStatus: "delivered",
     routeTarget: "dropoff",
+    openMapOnAdvance: false,
+    buttonVariant: "finish",
+    helperText: "Finalizá únicamente cuando el pedido esté entregado.",
+  },
+
+  delivered: {
+    badge: "Finalizado",
+    title: "Pedido entregado",
+    subtitle: "Este pedido ya fue finalizado.",
+    actionLabel: "Volver al inicio",
+    nextStep: null,
+    nextStatus: null,
+    routeTarget: "dropoff",
+    openMapOnAdvance: false,
+    buttonVariant: "done",
+    helperText: "",
   },
 };
 
@@ -107,14 +135,22 @@ function buildGoogleMapsDirectionsUrl(from, to) {
   )}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
 }
 
-function buildGoogleMapsDestinationUrl(to) {
-  if (!hasCoords(to)) return null;
+function buildGoogleMapsDestinationUrl(to, fallbackAddress = "") {
+  if (hasCoords(to)) {
+    const destination = `${to.lat},${to.lng}`;
 
-  const destination = `${to.lat},${to.lng}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+      destination
+    )}&travelmode=driving`;
+  }
 
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-    destination
-  )}&travelmode=driving`;
+  if (fallbackAddress && fallbackAddress !== "—") {
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+      fallbackAddress
+    )}&travelmode=driving`;
+  }
+
+  return null;
 }
 
 function formatMoney(value) {
@@ -208,6 +244,7 @@ function normalizePedido(pedido) {
   const contactFrom =
     pedido?.contactFrom ||
     pedido?.pickup?.phone ||
+    pedido?.customerPhone ||
     "—";
 
   const paymentMethod =
@@ -352,15 +389,35 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     return buildGoogleMapsDirectionsUrl(data.pickupCoords, data.dropoffCoords);
   }, [data]);
 
-  const mapsCurrentTarget = useMemo(() => {
-    if (!data) return null;
+  const getStepNavigationUrl = useCallback(
+    (routeTarget) => {
+      if (!data) return null;
 
-    if (stepConfig.routeTarget === "dropoff") {
-      return buildGoogleMapsDestinationUrl(data.dropoffCoords) || mapsDropoff;
-    }
+      if (routeTarget === "dropoff") {
+        return (
+          buildGoogleMapsDestinationUrl(data.dropoffCoords, data.dropoffAddress) ||
+          mapsDropoff
+        );
+      }
 
-    return buildGoogleMapsDestinationUrl(data.pickupCoords) || mapsPickup;
-  }, [data, stepConfig.routeTarget, mapsDropoff, mapsPickup]);
+      return (
+        buildGoogleMapsDestinationUrl(data.pickupCoords, data.pickupAddress) ||
+        mapsPickup
+      );
+    },
+    [data, mapsDropoff, mapsPickup]
+  );
+
+  const openMapForStep = useCallback(
+    (routeTarget) => {
+      const url = getStepNavigationUrl(routeTarget);
+
+      if (!url) return;
+
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
+    [getStepNavigationUrl]
+  );
 
   const updateActiveOrderMirror = useCallback(
     async (payload) => {
@@ -381,7 +438,14 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   const handleAdvanceStep = useCallback(async () => {
     if (!data || !orderId || updatingStep) return;
 
-    const currentConfig = STEP_CONFIG[data.currentStep] || STEP_CONFIG.go_to_pickup;
+    const currentConfig =
+      STEP_CONFIG[data.currentStep] || STEP_CONFIG.go_to_pickup;
+
+    if (data.currentStep === "delivered") {
+      navigate("/", { replace: true });
+      return;
+    }
+
     const nextStep = currentConfig.nextStep;
     const nextStatus = currentConfig.nextStatus;
 
@@ -389,6 +453,8 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
     setUpdatingStep(true);
     setError("");
+
+    const nowMs = Date.now();
 
     try {
       const orderRef = doc(db, "orders", orderId);
@@ -399,7 +465,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
           currentStep: "delivered",
           statusOperativo: "delivered",
           finishedAt: serverTimestamp(),
-          finishedAtMs: Date.now(),
+          finishedAtMs: nowMs,
           lastUpdate: serverTimestamp(),
         });
 
@@ -407,7 +473,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
           status: "delivered",
           currentStep: "delivered",
           statusOperativo: "delivered",
-          finishedAt: Date.now(),
+          finishedAt: nowMs,
         });
 
         if (cadeteId) {
@@ -419,14 +485,14 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
             currentOfferOrderId: null,
             currentOfferExpiresAt: null,
             presenceReason: "order_finished_from_active_page",
-            lastSeen: Date.now(),
+            lastSeen: nowMs,
           });
 
           await update(ref(rtdb, `onlineAdmissionRequests/${cadeteId}`), {
             estadoCadete: "disponible",
             workStatus: "idle",
             currentOrderId: null,
-            lastSeen: Date.now(),
+            lastSeen: nowMs,
           });
         }
 
@@ -434,15 +500,14 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
         return;
       }
 
-      const timeFieldByStep = {
+      const timeFieldByStatus = {
         started_pickup: "startedPickupAt",
         arrived_pickup: "arrivedPickupAt",
         picked_up: "pickedUpAt",
-        go_to_dropoff: "goToDropoffAt",
         arrived_dropoff: "arrivedDropoffAt",
       };
 
-      const timestampField = timeFieldByStep[nextStatus] || "stepUpdatedAt";
+      const timestampField = timeFieldByStatus[nextStatus] || "stepUpdatedAt";
 
       await updateDoc(orderRef, {
         currentStep: nextStep,
@@ -454,15 +519,29 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
       await updateActiveOrderMirror({
         currentStep: nextStep,
         statusOperativo: nextStatus,
-        [timestampField]: Date.now(),
+        [timestampField]: nowMs,
       });
+
+      if (currentConfig.openMapOnAdvance) {
+        setTimeout(() => {
+          openMapForStep(currentConfig.routeTarget);
+        }, 250);
+      }
     } catch (err) {
       console.error("❌ Error avanzando paso del pedido:", err);
       setError("No pudimos actualizar el estado del pedido. Intentá nuevamente.");
     } finally {
       setUpdatingStep(false);
     }
-  }, [data, orderId, updatingStep, updateActiveOrderMirror, cadeteId, navigate]);
+  }, [
+    data,
+    orderId,
+    updatingStep,
+    updateActiveOrderMirror,
+    cadeteId,
+    navigate,
+    openMapForStep,
+  ]);
 
   if (loading) {
     return (
@@ -493,7 +572,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
   return (
     <main className="pedido-activo-page">
-      <section className="pedido-activo-hero">
+      <section className={`pedido-activo-hero pedido-activo-hero--${stepConfig.buttonVariant}`}>
         <div className="pedido-activo-topbar">
           <button
             type="button"
@@ -515,35 +594,23 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
           <p>{stepConfig.subtitle}</p>
         </div>
 
-        <div className="pedido-activo-main-actions">
-          <a
-            className={`pedido-activo-route-btn ${
-              !mapsCurrentTarget ? "is-disabled" : ""
-            }`}
-            href={mapsCurrentTarget || "#"}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => !mapsCurrentTarget && e.preventDefault()}
-          >
-            Ver ruta en mapa
-          </a>
-
+        <div className="pedido-activo-main-actions pedido-activo-main-actions--single">
           <button
             type="button"
-            className="pedido-activo-primary-btn"
+            className={`pedido-activo-primary-btn pedido-activo-primary-btn--${stepConfig.buttonVariant}`}
             onClick={handleAdvanceStep}
             disabled={updatingStep}
           >
             {updatingStep ? "Actualizando..." : stepConfig.actionLabel}
           </button>
         </div>
+
+        {stepConfig.helperText && (
+          <p className="pedido-activo-action-helper">{stepConfig.helperText}</p>
+        )}
       </section>
 
-      {error && (
-        <div className="pedido-activo-inline-error">
-          {error}
-        </div>
-      )}
+      {error && <div className="pedido-activo-inline-error">{error}</div>}
 
       <section className="pedido-activo-summary">
         <article>
