@@ -8,13 +8,9 @@ import DriverHeatMap from "../../components/driverheatmap/DriverHeatMap";
 import DriverActionSheet from "../../components/driveractionsheet/DriverActionSheet";
 
 import {
-  collection,
   doc,
-  onSnapshot,
-  query,
   serverTimestamp,
   updateDoc,
-  where,
 } from "firebase/firestore";
 
 import { ref, set, update, onValue, off } from "firebase/database";
@@ -72,6 +68,7 @@ function HoldToConfirmButton({
 
   useEffect(() => {
     return () => clearHold();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -117,6 +114,21 @@ function resolveUiMode({
   return "offline";
 }
 
+function getOfferTime(offer) {
+  return Number(offer?.offeredAtMs || offer?.offeredAt || offer?.createdAtMs || 0);
+}
+
+function normalizeActiveOrderFromRtdb(orderId, activeOrder) {
+  if (!activeOrder) return null;
+
+  return {
+    ...activeOrder,
+    _docId: activeOrder.orderId || orderId,
+    id: activeOrder.orderId || orderId,
+    orderId: activeOrder.orderId || orderId,
+  };
+}
+
 function Home({ repartidorId, user, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -156,6 +168,7 @@ function Home({ repartidorId, user, onLogout }) {
     return String(
       repartidorId ||
         ficha.cadeteId ||
+        ficha.driverId ||
         ficha.id ||
         ficha.repartidorId ||
         ""
@@ -301,6 +314,7 @@ function Home({ repartidorId, user, onLogout }) {
 
       return {
         cadeteId,
+        driverId: cadeteId,
         sessionId: sessionIdRef.current,
         source: "driver_app",
         requestedAt: Date.now(),
@@ -314,11 +328,13 @@ function Home({ repartidorId, user, onLogout }) {
         accuracy: hasValidCoords ? coords.accuracy ?? null : null,
         estadoCadete: pedidoActivo ? "en_pedido" : "disponible",
         workStatus: pedidoActivo ? "busy" : "idle",
-        currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
+        currentOrderId:
+          pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id || null,
+        currentOfferOrderId: serverPresence?.currentOfferOrderId || null,
         requestReason: reason,
       };
     },
-    [cadeteId, pedidoActivo]
+    [cadeteId, pedidoActivo, serverPresence]
   );
 
   const writeAdmissionRequest = useCallback(
@@ -431,7 +447,9 @@ function Home({ repartidorId, user, onLogout }) {
 
         await update(driverOfferRef, {
           status,
+          state: status,
           respondedAt: Date.now(),
+          respondedAtMs: Date.now(),
           responseSource: "driver_app",
           ...extraPayload,
         });
@@ -489,6 +507,7 @@ function Home({ repartidorId, user, onLogout }) {
       setAdmissionState(null);
       setServerPresence(null);
       setPedidoOfertado(null);
+      setPedidoActivo(null);
 
       sessionIdRef.current = null;
     },
@@ -599,6 +618,9 @@ function Home({ repartidorId, user, onLogout }) {
           accuracy: pos.coords.accuracy,
         };
 
+        const activeOrderId =
+          pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id || null;
+
         setLiveCoords(nextCoords);
         setGeoStatus("granted");
 
@@ -609,10 +631,10 @@ function Home({ repartidorId, user, onLogout }) {
           lat: nextCoords.lat,
           lng: nextCoords.lng,
           accuracy: nextCoords.accuracy ?? null,
-          estadoCadete: pedidoActivo ? "en_pedido" : "disponible",
-          workStatus: pedidoActivo ? "busy" : "idle",
-          currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
-          requestReason: pedidoActivo ? "tracking_order" : "tracking_operational",
+          estadoCadete: activeOrderId ? "en_pedido" : "disponible",
+          workStatus: activeOrderId ? "busy" : "idle",
+          currentOrderId: activeOrderId,
+          requestReason: activeOrderId ? "tracking_order" : "tracking_operational",
         });
 
         if (serverPresence) {
@@ -623,9 +645,9 @@ function Home({ repartidorId, user, onLogout }) {
             lat: nextCoords.lat,
             lng: nextCoords.lng,
             accuracy: nextCoords.accuracy ?? null,
-            estadoCadete: pedidoActivo ? "en_pedido" : "disponible",
-            workStatus: pedidoActivo ? "busy" : "idle",
-            currentOrderId: pedidoActivo?._docId || pedidoActivo?.id || null,
+            estadoCadete: activeOrderId ? "en_pedido" : "disponible",
+            workStatus: activeOrderId ? "busy" : "idle",
+            currentOrderId: activeOrderId,
           });
         }
       },
@@ -861,11 +883,12 @@ function Home({ repartidorId, user, onLogout }) {
         const pendingOffers = Object.entries(offers)
           .map(([orderId, offer]) => ({
             ...offer,
+            _docId: offer?.orderId || orderId,
             id: offer?.orderId || orderId,
             orderId: offer?.orderId || orderId,
           }))
           .filter((offer) => offer?.status === "pending")
-          .sort((a, b) => Number(b?.offeredAt || 0) - Number(a?.offeredAt || 0));
+          .sort((a, b) => getOfferTime(b) - getOfferTime(a));
 
         if (pendingOffers.length === 0) {
           setPedidoOfertado(null);
@@ -884,42 +907,51 @@ function Home({ repartidorId, user, onLogout }) {
   }, [cadeteId]);
 
   useEffect(() => {
-    if (!repartidorId) return;
+    if (!cadeteId) return;
 
-    const q = query(
-      collection(db, "orders"),
-      where("status", "==", "asignado"),
-      where("assignedCadeteId", "==", String(repartidorId))
-    );
+    const activeOrdersRef = ref(rtdb, `driverActiveOrders/${cadeteId}`);
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snap) => {
+    const unsubscribe = onValue(
+      activeOrdersRef,
+      (snapshot) => {
+        const activeOrders = snapshot.val() || null;
         setActiveOrderLoaded(true);
 
-        if (snap.empty) {
+        if (!activeOrders) {
           setPedidoActivo(null);
           return;
         }
 
-        const docSnap = snap.docs[0];
+        const activeList = Object.entries(activeOrders)
+          .map(([orderId, order]) =>
+            normalizeActiveOrderFromRtdb(orderId, order)
+          )
+          .filter((order) => {
+            if (!order) return false;
+            if (order.status === "delivered") return false;
+            if (order.status === "completed") return false;
+            if (order.status === "cancelled") return false;
+            return true;
+          })
+          .sort(
+            (a, b) =>
+              Number(b?.acceptedAtMs || b?.updatedAtMs || 0) -
+              Number(a?.acceptedAtMs || a?.updatedAtMs || 0)
+          );
 
-        setPedidoActivo({
-          ...docSnap.data(),
-          _docId: docSnap.id,
-        });
+        setPedidoActivo(activeList[0] || null);
       },
       (error) => {
-        console.error("❌ Error escuchando pedido activo:", error);
+        console.error("❌ Error escuchando driverActiveOrders:", error);
         setActiveOrderLoaded(true);
       }
     );
 
-    return () => unsubscribe();
-  }, [repartidorId]);
+    return () => off(activeOrdersRef, "value", unsubscribe);
+  }, [cadeteId]);
 
   useEffect(() => {
-    const activeOrderId = pedidoActivo?._docId || pedidoActivo?.id;
+    const activeOrderId = pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id;
 
     if (!activeOrderId) return;
 
@@ -931,7 +963,8 @@ function Home({ repartidorId, user, onLogout }) {
   }, [pedidoActivo, location.pathname, navigate]);
 
   const activeOrderPresenceSignature = useMemo(() => {
-    const activeOrderId = pedidoActivo?._docId || pedidoActivo?.id || null;
+    const activeOrderId =
+      pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id || null;
 
     return {
       shouldWrite: Boolean(activeOrderId && serverPresence),
@@ -1008,10 +1041,34 @@ function Home({ repartidorId, user, onLogout }) {
       const orderDocId = resolveOrderDocId(pedido);
       if (!orderDocId) return;
 
+      const nowMs = Date.now();
+
       try {
         await updateDoc(doc(db, "orders", orderDocId), {
-          status: "finalizado",
+          status: "completed",
+
+          updatedAt: serverTimestamp(),
+          updatedAtMs: nowMs,
+
+          "delivery.currentStep": "delivered",
+          "delivery.operationalStatus": "delivered",
+          "delivery.finishedAt": serverTimestamp(),
+          "delivery.finishedAtMs": nowMs,
+
+          // Compatibilidad temporal.
+          currentStep: "delivered",
+          statusOperativo: "delivered",
           finishedAt: serverTimestamp(),
+          finishedAtMs: nowMs,
+          lastUpdate: serverTimestamp(),
+        });
+
+        await update(ref(rtdb, `driverActiveOrders/${cadeteId}/${orderDocId}`), {
+          status: "delivered",
+          currentStep: "delivered",
+          operationalStatus: "delivered",
+          finishedAtMs: nowMs,
+          updatedAtMs: nowMs,
         });
 
         setPedidoActivo(null);
@@ -1021,6 +1078,8 @@ function Home({ repartidorId, user, onLogout }) {
             estadoCadete: "disponible",
             workStatus: "idle",
             currentOrderId: null,
+            currentOfferOrderId: null,
+            currentOfferExpiresAt: null,
             availableForOffers: true,
             presenceReason: "order_finished",
           });
@@ -1037,7 +1096,13 @@ function Home({ repartidorId, user, onLogout }) {
         console.error("❌ Error finalizando pedido:", error);
       }
     },
-    [patchAdmissionRequest, patchDriverLive, resolveOrderDocId, serverPresence]
+    [
+      cadeteId,
+      patchAdmissionRequest,
+      patchDriverLive,
+      resolveOrderDocId,
+      serverPresence,
+    ]
   );
 
   const handleAceptarOferta = useCallback(
@@ -1103,7 +1168,8 @@ function Home({ repartidorId, user, onLogout }) {
         <button
           className="driver-main-action driver-main-action--busy"
           onClick={() => {
-            const activeOrderId = pedidoActivo?._docId || pedidoActivo?.id;
+            const activeOrderId =
+              pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id;
             if (activeOrderId) navigate(`/pedido-activo/${activeOrderId}`);
           }}
         >
@@ -1238,6 +1304,11 @@ function Home({ repartidorId, user, onLogout }) {
           <article>
             <span>Dinero disponible</span>
             <strong>{formatMoney(ficha.dineroDisponible)}</strong>
+          </article>
+
+          <article>
+            <span>Dinero en cuenta</span>
+            <strong>{formatMoney(ficha.dineroEnCuenta)}</strong>
           </article>
 
           <article>

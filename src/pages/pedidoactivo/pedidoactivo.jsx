@@ -6,7 +6,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { ref, update } from "firebase/database";
+import { ref, update, remove } from "firebase/database";
 
 import { db, rtdb } from "../../firebaseconfig";
 import "./pedidoactivo.css";
@@ -23,6 +23,7 @@ const STEP_CONFIG = {
     openMapOnAdvance: true,
     buttonVariant: "start",
     helperText: "Al comenzar se abrirá la ruta al punto de retiro.",
+    deliveryTimeField: "startedPickupAt",
   },
 
   started_pickup: {
@@ -36,6 +37,7 @@ const STEP_CONFIG = {
     openMapOnAdvance: false,
     buttonVariant: "pickup",
     helperText: "Confirmá solo cuando estés en el punto de retiro.",
+    deliveryTimeField: "arrivedPickupAt",
   },
 
   arrived_pickup: {
@@ -49,6 +51,7 @@ const STEP_CONFIG = {
     openMapOnAdvance: true,
     buttonVariant: "picked",
     helperText: "Al confirmar el retiro se abrirá la ruta al destino.",
+    deliveryTimeField: "pickedUpAt",
   },
 
   go_to_dropoff: {
@@ -62,6 +65,7 @@ const STEP_CONFIG = {
     openMapOnAdvance: false,
     buttonVariant: "dropoff",
     helperText: "Confirmá solo cuando estés en el domicilio de entrega.",
+    deliveryTimeField: "arrivedDropoffAt",
   },
 
   arrived_dropoff: {
@@ -75,6 +79,7 @@ const STEP_CONFIG = {
     openMapOnAdvance: false,
     buttonVariant: "finish",
     helperText: "Finalizá únicamente cuando el pedido esté entregado.",
+    deliveryTimeField: "finishedAt",
   },
 
   delivered: {
@@ -88,6 +93,7 @@ const STEP_CONFIG = {
     openMapOnAdvance: false,
     buttonVariant: "done",
     helperText: "",
+    deliveryTimeField: null,
   },
 };
 
@@ -107,6 +113,13 @@ function hasCoords(coords) {
     Number.isFinite(Number(coords.lat)) &&
     Number.isFinite(Number(coords.lng))
   );
+}
+
+function getPointCoords(point = {}, legacyCoords = {}) {
+  return {
+    lat: safeNumber(point?.coords?.lat ?? point?.lat ?? legacyCoords?.lat),
+    lng: safeNumber(point?.coords?.lng ?? point?.lng ?? legacyCoords?.lng),
+  };
 }
 
 function buildGoogleMapsPointUrl({ lat, lng, address, label }) {
@@ -177,101 +190,100 @@ function callPhone(number) {
 function normalizePedido(pedido) {
   if (!pedido) return null;
 
+  const pickup = pedido?.pickup || {};
+  const dropoff = pedido?.dropoff || {};
+  const delivery = pedido?.delivery || {};
+  const pricing = pedido?.pricing || {};
+  const payment = pedido?.payment || {};
+  const route = pedido?.route || {};
+  const service = pedido?.service || {};
+
   const pickupAddress =
-    pedido?.pickup?.address ||
+    pickup.address ||
+    pickup.input ||
     pedido?.origin ||
     pedido?.originInput ||
     pedido?.customerDefaultAddress?.address ||
     "—";
 
   const dropoffAddress =
-    pedido?.dropoff?.address ||
+    dropoff.address ||
+    dropoff.input ||
     pedido?.destination ||
     pedido?.destinationInput ||
     pedido?.destinationAddress?.address ||
     "—";
 
-  const pickupCoords = {
-    lat: safeNumber(
-      pedido?.pickup?.lat ??
-        pedido?.originCoords?.lat ??
-        pedido?.customerDefaultAddress?.lat
-    ),
-    lng: safeNumber(
-      pedido?.pickup?.lng ??
-        pedido?.originCoords?.lng ??
-        pedido?.customerDefaultAddress?.lng
-    ),
-  };
+  const pickupCoords = getPointCoords(pickup, {
+    lat: pedido?.originCoords?.lat ?? pedido?.customerDefaultAddress?.lat,
+    lng: pedido?.originCoords?.lng ?? pedido?.customerDefaultAddress?.lng,
+  });
 
-  const dropoffCoords = {
-    lat: safeNumber(
-      pedido?.dropoff?.lat ??
-        pedido?.destinationCoords?.lat ??
-        pedido?.destinationAddress?.lat
-    ),
-    lng: safeNumber(
-      pedido?.dropoff?.lng ??
-        pedido?.destinationCoords?.lng ??
-        pedido?.destinationAddress?.lng
-    ),
-  };
+  const dropoffCoords = getPointCoords(dropoff, {
+    lat: pedido?.destinationCoords?.lat ?? pedido?.destinationAddress?.lat,
+    lng: pedido?.destinationCoords?.lng ?? pedido?.destinationAddress?.lng,
+  });
 
   const notesFrom =
-    pedido?.pickup?.notes ||
+    pickup.notes ||
     pedido?.notes?.origen ||
     pedido?.notesFrom ||
     "";
 
   const notesTo =
-    pedido?.dropoff?.notes ||
+    dropoff.notes ||
     pedido?.notes?.destino ||
     pedido?.notesTo ||
     "";
 
   const recipientName =
     pedido?.recipient?.name ||
+    dropoff?.contact?.fullName ||
     pedido?.customerName ||
     pedido?.userName ||
     "—";
 
   const recipientPhone =
     pedido?.recipient?.phone ||
+    dropoff?.contact?.phone ||
     pedido?.contactTo ||
     pedido?.customerPhone ||
     "—";
 
   const contactFrom =
+    pickup?.contact?.phone ||
     pedido?.contactFrom ||
-    pedido?.pickup?.phone ||
     pedido?.customerPhone ||
     "—";
 
-  const paymentMethod =
-    pedido?.payment?.method ||
-    pedido?.paymentMethod ||
-    "cash";
+  const paymentMethod = payment.method || pedido?.paymentMethod || "cash";
 
   const requiresCashHandling =
-    pedido?.payment?.requiresCashHandling === true ||
+    payment.requiresCashHandling === true ||
     pedido?.requiresCashHandling === true;
 
   const price =
-    pedido?.payment?.price ??
+    pricing.price ??
+    payment.amount ??
     pedido?.price ??
     pedido?.breakdown?.total ??
     null;
 
-  const km = pedido?.km ?? pedido?.breakdown?.km ?? null;
+  const km =
+    route.distanceKm ??
+    pedido?.km ??
+    pedido?.breakdown?.km ??
+    null;
 
   const currentStep =
+    delivery.currentStep ||
     pedido?.currentStep ||
     pedido?.statusOperativo ||
     "go_to_pickup";
 
   return {
     id: pedido?._docId || pedido?.orderId || pedido?.id || "—",
-    status: pedido?.status || "asignado",
+    status: pedido?.status || "assigned",
     currentStep,
 
     pickupAddress: normalizeText(pickupAddress),
@@ -290,10 +302,15 @@ function normalizePedido(pedido) {
     paymentMethod,
     requiresCashHandling,
 
-    serviceType: normalizeText(pedido?.serviceType, "Envío"),
+    serviceType: normalizeText(service.label || service.type || pedido?.serviceType, "Envío"),
     size: normalizeText(pedido?.size, "—"),
 
-    assignedCadeteId: pedido?.assignedCadeteId || pedido?.cadeteId || null,
+    assignedDriverId:
+      pedido?.assignedDriverId ||
+      pedido?.assignment?.assignedDriverId ||
+      pedido?.assignedCadeteId ||
+      pedido?.cadeteId ||
+      null,
   };
 }
 
@@ -311,6 +328,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   const cadeteId = useMemo(() => {
     return String(
       propRepartidorId ||
+        ficha?.driverId ||
         ficha?.cadeteId ||
         ficha?.id ||
         ficha?.repartidorId ||
@@ -426,13 +444,42 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
       try {
         await update(ref(rtdb, `driverActiveOrders/${cadeteId}/${orderId}`), {
           ...payload,
-          updatedAt: Date.now(),
+          updatedAtMs: Date.now(),
         });
       } catch (err) {
         console.warn("⚠️ No se pudo actualizar driverActiveOrders:", err);
       }
     },
     [cadeteId, orderId]
+  );
+
+  const releaseDriver = useCallback(
+    async (nowMs) => {
+      if (!cadeteId) return;
+
+      try {
+        await update(ref(rtdb, `driversLive/${cadeteId}`), {
+          availableForOffers: true,
+          estadoCadete: "disponible",
+          workStatus: "idle",
+          currentOrderId: null,
+          currentOfferOrderId: null,
+          currentOfferExpiresAt: null,
+          presenceReason: "order_finished_from_active_page",
+          lastSeen: nowMs,
+        });
+
+        await update(ref(rtdb, `onlineAdmissionRequests/${cadeteId}`), {
+          estadoCadete: "disponible",
+          workStatus: "idle",
+          currentOrderId: null,
+          lastSeen: nowMs,
+        });
+      } catch (err) {
+        console.warn("⚠️ No se pudo liberar repartidor:", err);
+      }
+    },
+    [cadeteId]
   );
 
   const handleAdvanceStep = useCallback(async () => {
@@ -461,7 +508,17 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
       if (nextStep === "delivered") {
         await updateDoc(orderRef, {
-          status: "finalizado",
+          status: "completed",
+
+          updatedAt: serverTimestamp(),
+          updatedAtMs: nowMs,
+
+          "delivery.currentStep": "delivered",
+          "delivery.operationalStatus": "delivered",
+          "delivery.finishedAt": serverTimestamp(),
+          "delivery.finishedAtMs": nowMs,
+
+          // Compatibilidad temporal.
           currentStep: "delivered",
           statusOperativo: "delivered",
           finishedAt: serverTimestamp(),
@@ -472,44 +529,35 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
         await updateActiveOrderMirror({
           status: "delivered",
           currentStep: "delivered",
-          statusOperativo: "delivered",
-          finishedAt: nowMs,
+          operationalStatus: "delivered",
+          finishedAtMs: nowMs,
         });
 
         if (cadeteId) {
-          await update(ref(rtdb, `driversLive/${cadeteId}`), {
-            availableForOffers: true,
-            estadoCadete: "disponible",
-            workStatus: "idle",
-            currentOrderId: null,
-            currentOfferOrderId: null,
-            currentOfferExpiresAt: null,
-            presenceReason: "order_finished_from_active_page",
-            lastSeen: nowMs,
-          });
-
-          await update(ref(rtdb, `onlineAdmissionRequests/${cadeteId}`), {
-            estadoCadete: "disponible",
-            workStatus: "idle",
-            currentOrderId: null,
-            lastSeen: nowMs,
-          });
+          try {
+            await remove(ref(rtdb, `driverActiveOrders/${cadeteId}/${orderId}`));
+          } catch (err) {
+            console.warn("⚠️ No se pudo remover driverActiveOrders:", err);
+          }
         }
+
+        await releaseDriver(nowMs);
 
         navigate("/", { replace: true });
         return;
       }
 
-      const timeFieldByStatus = {
-        started_pickup: "startedPickupAt",
-        arrived_pickup: "arrivedPickupAt",
-        picked_up: "pickedUpAt",
-        arrived_dropoff: "arrivedDropoffAt",
-      };
-
-      const timestampField = timeFieldByStatus[nextStatus] || "stepUpdatedAt";
+      const timestampField = currentConfig.deliveryTimeField || "stepUpdatedAt";
 
       await updateDoc(orderRef, {
+        updatedAt: serverTimestamp(),
+        updatedAtMs: nowMs,
+
+        [`delivery.${timestampField}`]: serverTimestamp(),
+        "delivery.currentStep": nextStep,
+        "delivery.operationalStatus": nextStatus,
+
+        // Compatibilidad temporal.
         currentStep: nextStep,
         statusOperativo: nextStatus,
         [timestampField]: serverTimestamp(),
@@ -518,6 +566,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
       await updateActiveOrderMirror({
         currentStep: nextStep,
+        operationalStatus: nextStatus,
         statusOperativo: nextStatus,
         [timestampField]: nowMs,
       });
@@ -541,6 +590,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     cadeteId,
     navigate,
     openMapForStep,
+    releaseDriver,
   ]);
 
   if (loading) {
@@ -572,7 +622,9 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
   return (
     <main className="pedido-activo-page">
-      <section className={`pedido-activo-hero pedido-activo-hero--${stepConfig.buttonVariant}`}>
+      <section
+        className={`pedido-activo-hero pedido-activo-hero--${stepConfig.buttonVariant}`}
+      >
         <div className="pedido-activo-topbar">
           <button
             type="button"
