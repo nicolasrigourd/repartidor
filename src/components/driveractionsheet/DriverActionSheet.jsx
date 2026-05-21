@@ -5,11 +5,20 @@ const SHEET_COLLAPSED = "collapsed";
 const SHEET_PEEK = "peek";
 const SHEET_EXPANDED = "expanded";
 
-function formatMoney(value) {
-  if (value == null || value === "") return null;
+function normalizeText(value, fallback = "") {
+  const normalized = String(value ?? "").trim();
+  return normalized || fallback;
+}
 
+function toNumber(value, fallback = null) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function formatMoney(value) {
   const num = Number(value);
-  if (Number.isNaN(num)) return null;
+
+  if (!Number.isFinite(num)) return null;
 
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -18,32 +27,82 @@ function formatMoney(value) {
   }).format(num);
 }
 
+function getOrderId(pedido) {
+  return normalizeText(pedido?.orderId);
+}
+
+function getOfferKey(pedido) {
+  if (!pedido) return "";
+
+  const orderId = getOrderId(pedido);
+  const offeredAtMs = normalizeText(pedido?.offeredAtMs);
+  const offerAttempt = normalizeText(pedido?.offerAttempt);
+
+  return `${orderId}__${offeredAtMs}__${offerAttempt}`;
+}
+
+function getRemainingSeconds(pedido, fallbackSeconds) {
+  const expiresAtMs = toNumber(pedido?.expiresAtMs, null);
+
+  if (!expiresAtMs) return fallbackSeconds;
+
+  const diffMs = expiresAtMs - Date.now();
+  const diffSeconds = Math.ceil(diffMs / 1000);
+
+  return Math.max(0, diffSeconds);
+}
+
+function isPendingOffer(pedido) {
+  return pedido?.status === "pending" && pedido?.state === "pending";
+}
+
 function getPedidoResumen(pedido) {
   if (!pedido) return null;
 
   return {
-    id: pedido.orderId || pedido.id || pedido?._docId || "—",
+    id: normalizeText(pedido.orderId, "—"),
+
     origen:
-      pedido?.pickup?.address ||
-      pedido.originInput ||
-      pedido.origin ||
-      pedido?.customerDefaultAddress?.address ||
-      pedido?.customerSnapshot?.direccion ||
+      normalizeText(pedido?.pickup?.address) ||
+      normalizeText(pedido?.pickup?.input) ||
       "Origen no informado",
+
     destino:
-      pedido?.dropoff?.address ||
-      pedido.destinationInput ||
-      pedido.destination ||
-      pedido?.destinationAddress?.address ||
+      normalizeText(pedido?.dropoff?.address) ||
+      normalizeText(pedido?.dropoff?.input) ||
       "Destino no informado",
-    precio: pedido.price ?? pedido?.breakdown?.total ?? null,
-    km: pedido.km ?? pedido?.breakdown?.km ?? null,
-    tipo: pedido.type || pedido.serviceType || pedido.tipo || "Envío",
+
+    precio: toNumber(pedido?.pricing?.price, null),
+
+    km: toNumber(pedido?.route?.distanceKm, null),
+
+    tipo:
+      normalizeText(pedido?.service?.label) ||
+      normalizeText(pedido?.service?.type) ||
+      "Envío",
+
+    paymentMethod: normalizeText(pedido?.payment?.method, "cash"),
+
+    requiresCashHandling: pedido?.payment?.requiresCashHandling === true,
+
+    requiresMoney: pedido?.payment?.requiresMoney === true,
+
+    requiredMoneyAmount: toNumber(pedido?.payment?.requiredMoneyAmount, 0),
+
+    recipientName: normalizeText(pedido?.recipient?.name),
+
+    recipientPhone: normalizeText(pedido?.recipient?.phone),
   };
 }
 
-function getStatusCopy({ workStatus, geoStatus, pedidoOfertado, pedidoActivo }) {
-  if (pedidoOfertado) {
+function getStatusCopy({
+  workStatus,
+  geoStatus,
+  geoError,
+  ofertaVisible,
+  pedidoActivo,
+}) {
+  if (ofertaVisible) {
     return {
       title: "Nueva oferta de Zeus",
       subtitle: "Respondé antes de que expire el tiempo.",
@@ -86,7 +145,7 @@ function getStatusCopy({ workStatus, geoStatus, pedidoOfertado, pedidoActivo }) 
   if (workStatus === "error" || geoStatus === "denied" || geoStatus === "error") {
     return {
       title: "Revisar ubicación",
-      subtitle: "Necesitamos GPS activo para asignarte pedidos.",
+      subtitle: geoError || "Necesitamos GPS activo para asignarte pedidos.",
       pill: "Revisar",
       tone: "error",
       collapsed: "GPS pendiente",
@@ -118,24 +177,6 @@ function getNextSheetMode(currentMode, direction) {
   return currentMode;
 }
 
-function getOfferKey(pedido) {
-  if (!pedido) return "";
-
-  const orderId = pedido?.orderId || pedido?.id || pedido?._docId || "";
-  const offeredAt = pedido?.offeredAt || "";
-
-  return `${orderId}__${offeredAt}`;
-}
-
-function getRemainingSeconds(pedido, fallbackSeconds) {
-  if (!pedido?.expiresAt) return fallbackSeconds;
-
-  const diffMs = Number(pedido.expiresAt) - Date.now();
-  const diffSeconds = Math.ceil(diffMs / 1000);
-
-  return Math.max(0, diffSeconds);
-}
-
 function DriverActionSheet({
   workStatus = "offline",
   geoStatus = "idle",
@@ -163,9 +204,25 @@ function DriverActionSheet({
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
 
-  const resumenOferta = useMemo(
-    () => getPedidoResumen(pedidoOfertado),
+  const activeOfferKey = useMemo(
+    () => getOfferKey(pedidoOfertado),
     [pedidoOfertado]
+  );
+
+  const ofertaVisible = useMemo(() => {
+    if (!pedidoOfertado) return null;
+    if (!isPendingOffer(pedidoOfertado)) return null;
+
+    const remaining = getRemainingSeconds(pedidoOfertado, segundosOferta);
+
+    if (remaining <= 0) return null;
+
+    return pedidoOfertado;
+  }, [pedidoOfertado, segundosOferta, restante]);
+
+  const resumenOferta = useMemo(
+    () => getPedidoResumen(ofertaVisible),
+    [ofertaVisible]
   );
 
   const resumenActivo = useMemo(
@@ -173,20 +230,16 @@ function DriverActionSheet({
     [pedidoActivo]
   );
 
-  const activeOfferKey = useMemo(
-    () => getOfferKey(pedidoOfertado),
-    [pedidoOfertado]
-  );
-
   const statusCopy = useMemo(
     () =>
       getStatusCopy({
         workStatus,
         geoStatus,
-        pedidoOfertado,
+        geoError,
+        ofertaVisible,
         pedidoActivo,
       }),
-    [workStatus, geoStatus, pedidoOfertado, pedidoActivo]
+    [workStatus, geoStatus, geoError, ofertaVisible, pedidoActivo]
   );
 
   useEffect(() => {
@@ -196,6 +249,7 @@ function DriverActionSheet({
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
 
       if (audioRef.current) {
@@ -206,7 +260,7 @@ function DriverActionSheet({
   }, []);
 
   useEffect(() => {
-    if (!pedidoOfertado || !activeOfferKey) {
+    if (!pedidoOfertado || !activeOfferKey || !isPendingOffer(pedidoOfertado)) {
       processedOfferKeyRef.current = "";
       announcedOfferKeyRef.current = "";
       timeoutHandledKeyRef.current = "";
@@ -226,6 +280,7 @@ function DriverActionSheet({
     if (announcedOfferKeyRef.current !== activeOfferKey) {
       announcedOfferKeyRef.current = activeOfferKey;
       timeoutHandledKeyRef.current = "";
+      processedOfferKeyRef.current = "";
 
       setSheetMode(SHEET_EXPANDED);
 
@@ -348,7 +403,7 @@ function DriverActionSheet({
     event.preventDefault();
     event.stopPropagation();
 
-    if (!pedidoOfertado || !activeOfferKey) return;
+    if (!ofertaVisible || !activeOfferKey) return;
 
     if (processedOfferKeyRef.current === activeOfferKey) {
       console.log("[SHEET] aceptar ignorado, oferta ya procesada", {
@@ -361,17 +416,17 @@ function DriverActionSheet({
 
     console.log("[SHEET] aceptar oferta", {
       activeOfferKey,
-      pedidoOfertado,
+      ofertaVisible,
     });
 
-    onAceptarOferta?.(pedidoOfertado);
+    onAceptarOferta?.(ofertaVisible);
   };
 
   const handleRechazarOferta = (event) => {
     event.preventDefault();
     event.stopPropagation();
 
-    if (!pedidoOfertado || !activeOfferKey) return;
+    if (!ofertaVisible || !activeOfferKey) return;
 
     if (processedOfferKeyRef.current === activeOfferKey) {
       console.log("[SHEET] rechazo ignorado, oferta ya procesada", {
@@ -384,10 +439,10 @@ function DriverActionSheet({
 
     console.log("[SHEET] rechazar oferta", {
       activeOfferKey,
-      pedidoOfertado,
+      ofertaVisible,
     });
 
-    onRechazarOferta?.(pedidoOfertado);
+    onRechazarOferta?.(ofertaVisible);
   };
 
   const handleFinalizarPedido = (event) => {
@@ -403,8 +458,35 @@ function DriverActionSheet({
     onFinalizarPedido?.(pedidoActivo);
   };
 
+  const renderDineroInfo = () => {
+    if (!resumenOferta) return null;
+
+    if (resumenOferta.requiresMoney) {
+      return (
+        <div className="driver-action-money-alert">
+          <strong>Requiere dinero disponible</strong>
+          <span>
+            Monto requerido:{" "}
+            {formatMoney(resumenOferta.requiredMoneyAmount) || "$0"}
+          </span>
+        </div>
+      );
+    }
+
+    if (resumenOferta.requiresCashHandling) {
+      return (
+        <div className="driver-action-money-alert">
+          <strong>Pedido con manejo de efectivo</strong>
+          <span>Verificá el cobro al finalizar.</span>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   const renderOferta = () => {
-    if (!pedidoOfertado || !resumenOferta) return null;
+    if (!ofertaVisible || !resumenOferta) return null;
 
     return (
       <div className="driver-action-offer">
@@ -441,6 +523,8 @@ function DriverActionSheet({
           )}
         </div>
 
+        {renderDineroInfo()}
+
         <div className="driver-action-route">
           <div>
             <span>A</span>
@@ -458,6 +542,16 @@ function DriverActionSheet({
             </p>
           </div>
         </div>
+
+        {resumenOferta.recipientName && (
+          <div className="driver-action-recipient">
+            <span>Recibe</span>
+            <strong>{resumenOferta.recipientName}</strong>
+            {resumenOferta.recipientPhone && (
+              <small>{resumenOferta.recipientPhone}</small>
+            )}
+          </div>
+        )}
 
         <div className="driver-action-buttons">
           <button
@@ -587,7 +681,7 @@ function DriverActionSheet({
         </div>
 
         <span className="driver-action-collapsed-hint">
-          {pedidoOfertado ? `${restante}s` : "Deslizá"}
+          {ofertaVisible ? `${restante}s` : "Deslizá"}
         </span>
       </div>
 
@@ -604,9 +698,9 @@ function DriverActionSheet({
           </span>
         </div>
 
-        {pedidoOfertado && renderOferta()}
-        {!pedidoOfertado && pedidoActivo && renderPedidoActivo()}
-        {!pedidoOfertado && !pedidoActivo && renderEmpty()}
+        {ofertaVisible && renderOferta()}
+        {!ofertaVisible && pedidoActivo && renderPedidoActivo()}
+        {!ofertaVisible && !pedidoActivo && renderEmpty()}
       </div>
     </section>
   );
