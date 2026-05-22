@@ -1,12 +1,24 @@
-/* src/components/driveractionsheet/driveractionsheet.css */
+/* src/components/driveractionsheet/DriverActionSheet.css */
+
+:root {
+  --driver-bottom-bar-height: 76px;
+  --driver-sheet-side-gap: 14px;
+  --driver-sheet-bottom-gap: 10px;
+}
 
 .driver-action-sheet {
-  position: relative;
-  z-index: 30;
+  position: fixed;
+  left: 50%;
+  bottom: calc(
+    var(--driver-bottom-bar-height) +
+    env(safe-area-inset-bottom, 0px) +
+    var(--driver-sheet-bottom-gap)
+  );
+  transform: translateX(-50%);
+  z-index: 90;
 
   width: calc(100% - 28px);
   max-width: 920px;
-  margin: -4px auto 8px;
 
   border-radius: 24px 24px 18px 18px;
   box-sizing: border-box;
@@ -29,17 +41,22 @@
 }
 
 .driver-action-sheet--collapsed {
-  max-height: 48px;
+  max-height: 52px;
   padding: 8px 14px 12px;
 }
 
 .driver-action-sheet--peek {
-  max-height: 146px;
+  max-height: 150px;
   padding: 9px 14px 14px;
 }
 
 .driver-action-sheet--expanded {
-  max-height: 430px;
+  max-height: calc(
+    100dvh -
+    var(--driver-bottom-bar-height) -
+    env(safe-area-inset-bottom, 0px) -
+    30px
+  );
   padding: 9px 14px 14px;
 }
 
@@ -81,6 +98,7 @@
   border-radius: 999px;
   background: #d1d5db;
   margin: 0 auto 10px;
+  flex: 0 0 auto;
 }
 
 .driver-action-sheet--offer .driver-action-handle {
@@ -183,10 +201,25 @@
 .driver-action-content {
   display: grid;
   gap: 12px;
+  max-height: calc(
+    100dvh -
+    var(--driver-bottom-bar-height) -
+    env(safe-area-inset-bottom, 0px) -
+    70px
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
 }
 
 .driver-action-sheet--collapsed .driver-action-content {
   display: none;
+}
+
+.driver-action-sheet--peek .driver-action-content {
+  overflow: hidden;
+  max-height: 112px;
 }
 
 .driver-action-header {
@@ -194,6 +227,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex: 0 0 auto;
 }
 
 .driver-action-header h2,
@@ -313,7 +347,7 @@
 }
 
 /* ===============================
-   OFERTA
+   OFERTA / ACTIVO
    =============================== */
 
 .driver-action-offer,
@@ -324,6 +358,8 @@
 
 .driver-action-sheet--peek .driver-action-offer .driver-action-route,
 .driver-action-sheet--peek .driver-action-offer .driver-action-offer-summary,
+.driver-action-sheet--peek .driver-action-offer .driver-action-recipient,
+.driver-action-sheet--peek .driver-action-offer .driver-action-money-alert,
 .driver-action-sheet--peek .driver-action-active-order .driver-action-route,
 .driver-action-sheet--peek .driver-action-active-order .driver-action-offer-summary {
   display: none;
@@ -415,6 +451,33 @@
 }
 
 /* ===============================
+   MONEY
+   =============================== */
+
+.driver-action-money-alert {
+  border-radius: 18px;
+  padding: 10px 12px;
+  background: #fff7ed;
+  border: 1px solid rgba(249, 115, 22, 0.24);
+  display: grid;
+  gap: 4px;
+}
+
+.driver-action-money-alert strong {
+  color: #9a3412;
+  font-size: 0.78rem;
+  line-height: 1.1;
+  font-weight: 950;
+}
+
+.driver-action-money-alert span {
+  color: #7c2d12;
+  font-size: 0.76rem;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+/* ===============================
    ROUTE
    =============================== */
 
@@ -455,17 +518,44 @@
   min-width: 0;
   display: grid;
   gap: 3px;
+  color: #111827;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  font-weight: 850;
 }
 
 .driver-action-route p strong {
   display: block;
 }
 
-.driver-action-route p {
-  color: #111827;
-  font-size: 0.82rem;
-  line-height: 1.2;
+.driver-action-recipient {
+  border-radius: 18px;
+  padding: 10px 12px;
+  background: rgba(243, 244, 246, 0.9);
+  display: grid;
+  gap: 3px;
+}
+
+.driver-action-recipient span {
+  color: #6b7280;
+  font-size: 0.66rem;
+  line-height: 1;
   font-weight: 850;
+  text-transform: uppercase;
+}
+
+.driver-action-recipient strong {
+  color: #111827;
+  font-size: 0.86rem;
+  line-height: 1.1;
+  font-weight: 950;
+}
+
+.driver-action-recipient small {
+  color: #6b7280;
+  font-size: 0.76rem;
+  line-height: 1.1;
+  font-weight: 800;
 }
 
 /* ===============================
@@ -473,14 +563,33 @@
    =============================== */
 
 .driver-action-buttons {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+
   display: grid;
   grid-template-columns: 1fr 1.2fr;
   gap: 10px;
+
+  padding-top: 8px;
+  padding-bottom: 2px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 247, 237, 0) 0%,
+    rgba(255, 247, 237, 0.96) 28%,
+    rgba(255, 247, 237, 1) 100%
+  );
+}
+
+.driver-action-active-order > .driver-action-btn--finish {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
 }
 
 .driver-action-btn {
   width: 100%;
-  min-height: 48px;
+  min-height: 50px;
   border: none;
   border-radius: 17px;
   font-size: 0.9rem;
@@ -515,6 +624,10 @@
    =============================== */
 
 @media (max-width: 390px) {
+  :root {
+    --driver-sheet-side-gap: 10px;
+  }
+
   .driver-action-sheet {
     width: calc(100% - 20px);
     border-radius: 22px 22px 18px 18px;
@@ -540,19 +653,33 @@
   .driver-action-offer-summary {
     grid-template-columns: 1fr;
   }
-
-  .driver-action-sheet--expanded {
-    max-height: 460px;
-  }
 }
 
 @media (max-height: 700px) {
+  :root {
+    --driver-bottom-bar-height: 72px;
+  }
+
   .driver-action-sheet--peek {
     max-height: 132px;
   }
 
   .driver-action-sheet--expanded {
-    max-height: 390px;
+    max-height: calc(
+      100dvh -
+      var(--driver-bottom-bar-height) -
+      env(safe-area-inset-bottom, 0px) -
+      22px
+    );
+  }
+
+  .driver-action-content {
+    max-height: calc(
+      100dvh -
+      var(--driver-bottom-bar-height) -
+      env(safe-area-inset-bottom, 0px) -
+      62px
+    );
   }
 
   .driver-action-offer-summary {
