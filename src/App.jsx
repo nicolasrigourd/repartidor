@@ -99,45 +99,32 @@ function App() {
 
   const validarRepartidorHabilitado = (repartidor) => {
     if (!repartidor) {
-      return {
-        ok: false,
-        message: "Usuario no encontrado.",
-      };
+      return { ok: false, message: "Usuario no encontrado." };
     }
 
-    if (repartidor.activo === false) {
-      return {
-        ok: false,
-        message: "Tu usuario se encuentra inactivo.",
-      };
+    // Compatibilidad schema legacy (español) y actual (inglés)
+    const activo   = repartidor.active  ?? repartidor.activo;
+    const bloqueado = repartidor.blocked ?? repartidor.bloqueado;
+    const usaApp   = repartidor.usesApp ?? repartidor.usaApp;
+
+    if (activo === false) {
+      return { ok: false, message: "Tu usuario se encuentra inactivo." };
     }
 
     if (repartidor.visible === false) {
-      return {
-        ok: false,
-        message: "Tu usuario no se encuentra visible para operar.",
-      };
+      return { ok: false, message: "Tu usuario no se encuentra visible para operar." };
     }
 
-    if (repartidor.bloqueado === true) {
-      return {
-        ok: false,
-        message: "Tu usuario se encuentra bloqueado por la central.",
-      };
+    if (bloqueado === true) {
+      return { ok: false, message: "Tu usuario se encuentra bloqueado por la central." };
     }
 
-    if (repartidor.usaApp !== true) {
-      return {
-        ok: false,
-        message: "Este repartidor no tiene habilitado el uso de app.",
-      };
+    if (usaApp !== true) {
+      return { ok: false, message: "Este repartidor no tiene habilitado el uso de app." };
     }
 
     if (repartidor.appAccess?.enabled !== true) {
-      return {
-        ok: false,
-        message: "El acceso a la app no está habilitado.",
-      };
+      return { ok: false, message: "El acceso a la app no está habilitado." };
     }
 
     return { ok: true };
