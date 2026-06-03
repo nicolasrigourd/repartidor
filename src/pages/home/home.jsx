@@ -5,11 +5,8 @@ import "./home.css";
 import BottomBar     from "../../components/bottombar/bottombar";
 import MapaRepartidor from "../../components/maparepartidor/MapaRepartidor";
 import OfertaPantalla from "../../components/ofertapantalla/OfertaPantalla";
-import {
-  OfflineCard,
-  OnlineStatusCard,
-  PedidoActivoCard,
-} from "../../components/drivercards/DriverCards";
+import { PedidoActivoCard } from "../../components/drivercards/DriverCards";
+import { Bell, UserCircle, SignOut, X } from "@phosphor-icons/react";
 
 import {
   doc,
@@ -141,6 +138,7 @@ function Home({ repartidorId, user, onLogout }) {
   const nombreCompleto = `${ficha.nombre || ""} ${ficha.apellido || ""}`.trim();
 
   const [activeTab, setActiveTab] = useState("home");
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const [geoStatus, setGeoStatus] = useState("idle");
   const [geoError, setGeoError] = useState("");
@@ -285,7 +283,6 @@ function Home({ repartidorId, user, onLogout }) {
         position: "leftBottom",
         intensity: 2,
         lat: -27.735, lng: -64.240, radio: 450,
-        lng: null,
       },
     ],
     []
@@ -1393,14 +1390,147 @@ function Home({ repartidorId, user, onLogout }) {
     return c?.lat && c?.lng ? c : null;
   }, [pedidoOfertado]);
 
-  // ── Indica si está conectando (para deshabilitar el botón) ──
-  const estaConectando = workStatus === "starting" || workStatus === "pending_admission";
-  const estaOnline     = ["online", "busy", "pending_admission", "starting"].includes(workStatus);
+  const estaOnline = ["online", "busy", "pending_admission", "starting"].includes(workStatus);
+
+  // ── Action button ──────────────────────────────────────────
+  const renderActionButton = () => {
+    if (isBootstrapping) {
+      return (
+        <button className="drv-action drv-action--loading" disabled>
+          Sincronizando...
+        </button>
+      );
+    }
+    if (workStatus === "offline" || workStatus === "error") {
+      return (
+        <button className="drv-action drv-action--connect" onClick={handleStartWork}>
+          Conectarme
+        </button>
+      );
+    }
+    if (workStatus === "starting" || workStatus === "pending_admission") {
+      return (
+        <button className="drv-action drv-action--loading" disabled>
+          {workStatus === "starting" ? "Buscando GPS…" : "Validando ingreso…"}
+        </button>
+      );
+    }
+    if (workStatus === "online") {
+      return (
+        <button className="drv-action drv-action--disconnect" onClick={handleStopWork}>
+          Desconectarme
+        </button>
+      );
+    }
+    if (workStatus === "busy") {
+      const activeId = pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id;
+      return (
+        <button
+          className="drv-action drv-action--busy"
+          onClick={() => activeId && navigate(`/pedido-activo/${activeId}`)}
+        >
+          Ver pedido activo
+        </button>
+      );
+    }
+    return null;
+  };
+
+  // ── Home tab ───────────────────────────────────────────────
+  const renderHomeTab = () => (
+    <div className="drv-home-tab">
+      <div className="drv-status-row">
+        <span className={`drv-status-dot drv-status-dot--${workStatus}`} />
+        <div className="drv-status-text">
+          <strong>{statusCopy.label}</strong>
+          <small>{statusCopy.text}</small>
+        </div>
+      </div>
+
+      {geoError && <div className="drv-error-box">{geoError}</div>}
+
+      <div className="drv-metrics">
+        <div className="drv-metric">
+          <span>Disponible</span>
+          <strong>{formatMoney(ficha.dineroDisponible)}</strong>
+        </div>
+        <div className="drv-metric">
+          <span>Deuda</span>
+          <strong className={ficha.deudaActual > 0 ? "drv-metric--danger" : ""}>
+            {formatMoney(ficha.deudaActual)}
+          </strong>
+        </div>
+        <div className="drv-metric">
+          <span>Base hoy</span>
+          <strong>{formatMoney(ficha.baseActual)}</strong>
+        </div>
+        <div className="drv-metric">
+          <span>Multa</span>
+          <strong className={ficha.multaActual > 0 ? "drv-metric--danger" : ""}>
+            {formatMoney(ficha.multaActual)}
+          </strong>
+        </div>
+      </div>
+
+      {renderActionButton()}
+    </div>
+  );
+
+  // ── Pedidos tab ────────────────────────────────────────────
+  const renderPedidosTab = () => (
+    <div className="drv-tab-content">
+      <p className="drv-tab-title">Pedidos</p>
+      {pedidoActivo ? (
+        <PedidoActivoCard
+          pedido={pedidoActivo}
+          onVerDetalle={() => {
+            const id = pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id;
+            if (id) navigate(`/pedido-activo/${id}`);
+          }}
+        />
+      ) : (
+        <div className="drv-empty-state">
+          <span>Sin pedidos activos</span>
+          <small>Cuando aceptes un pedido aparecerá aquí.</small>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Billetera tab ──────────────────────────────────────────
+  const renderBilleteraTab = () => (
+    <div className="drv-tab-content">
+      <p className="drv-tab-title">Billetera</p>
+      <div className="drv-wallet-grid">
+        <article><span>Disponible</span><strong>{formatMoney(ficha.dineroDisponible)}</strong></article>
+        <article><span>En cuenta</span><strong>{formatMoney(ficha.dineroEnCuenta || 0)}</strong></article>
+        <article><span>Deuda</span><strong>{formatMoney(ficha.deudaActual)}</strong></article>
+        <article><span>Multa</span><strong>{formatMoney(ficha.multaActual)}</strong></article>
+        <article><span>Base hoy</span><strong>{formatMoney(ficha.baseActual)}</strong></article>
+      </div>
+    </div>
+  );
+
+  // ── Perfil tab ─────────────────────────────────────────────
+  const renderPerfilTab = () => (
+    <div className="drv-tab-content">
+      <p className="drv-tab-title">Perfil</p>
+      <div className="drv-profile-list">
+        <div><span>ID</span><strong>{ficha.id || repartidorId}</strong></div>
+        <div><span>Nombre</span><strong>{nombreCompleto || "—"}</strong></div>
+        <div><span>Movilidad</span><strong>{ficha.movilidad || "—"}</strong></div>
+        <div><span>Sucursal</span><strong>{ficha.sucursal || "—"}</strong></div>
+        <div><span>Celular</span><strong>{ficha.celular || "—"}</strong></div>
+      </div>
+      <button className="drv-logout-btn" onClick={handleLogout}>
+        Cerrar sesión
+      </button>
+    </div>
+  );
 
   return (
     <div className="driver-root">
-
-      {/* ── MAPA — siempre como fondo ─────────────────────── */}
+      {/* Mapa — fondo completo */}
       <MapaRepartidor
         workStatus={workStatus}
         liveCoords={liveCoords}
@@ -1409,39 +1539,7 @@ function Home({ repartidorId, user, onLogout }) {
         pedidoActivo={workStatus === "busy" ? pedidoActivo : null}
       />
 
-      {/* ── OFFLINE: card con incentivo + botón conectar ─── */}
-      {!estaOnline && (
-        <OfflineCard
-          pedidosActivos={0}
-          gananciaUltima={ficha.dineroDisponible || 0}
-          onConectar={handleStartWork}
-          conectando={estaConectando}
-          errorConexion={geoError}
-        />
-      )}
-
-      {/* ── ONLINE: pill de estado arriba ────────────────── */}
-      {estaOnline && (
-        <OnlineStatusCard
-          workStatus={workStatus}
-          gananciaHoy={ficha.dineroDisponible || 0}
-          pedidosHoy={0}
-          onDesconectar={handleStopWork}
-        />
-      )}
-
-      {/* ── PEDIDO ACTIVO: mini card abajo ───────────────── */}
-      {workStatus === "busy" && pedidoActivo && (
-        <PedidoActivoCard
-          pedido={pedidoActivo}
-          onVerDetalle={() => {
-            const id = pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id;
-            if (id) navigate(`/pedido-activo/${id}`);
-          }}
-        />
-      )}
-
-      {/* ── OFERTA: pantalla completa ─────────────────────── */}
+      {/* Oferta — overlay pantalla completa */}
       {pedidoOfertado && (
         <OfertaPantalla
           oferta={pedidoOfertado}
@@ -1454,7 +1552,68 @@ function Home({ repartidorId, user, onLogout }) {
         />
       )}
 
-      <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
+      {/* UI principal */}
+      <div className="driver-ui">
+        <header className="driver-header">
+          <div className="driver-header__left">
+            <span className={`drv-status-dot drv-status-dot--${workStatus}`} />
+            <div className="driver-header__greeting">
+              <span className="driver-header__hola">Hola,</span>
+              <span className="driver-header__name">{ficha.nombre || nombreCompleto || "Repartidor"}</span>
+            </div>
+          </div>
+          <div className="driver-header__actions">
+            <button type="button" className="driver-header__icon-btn" aria-label="Notificaciones">
+              <Bell size={20} weight="regular" />
+            </button>
+            <button
+              type="button"
+              className={`driver-header__icon-btn ${showProfileMenu ? "driver-header__icon-btn--active" : ""}`}
+              aria-label="Perfil"
+              onClick={() => setShowProfileMenu(v => !v)}
+            >
+              <UserCircle size={22} weight="regular" />
+            </button>
+          </div>
+        </header>
+
+        {/* Menú de perfil */}
+        {showProfileMenu && (
+          <div className="driver-profile-menu">
+            <div className="driver-profile-menu__info">
+              <span className="driver-profile-menu__name">{nombreCompleto || "Repartidor"}</span>
+              <span className="driver-profile-menu__id">ID {ficha.id || repartidorId} · {ficha.sucursal || "—"}</span>
+            </div>
+            <button
+              type="button"
+              className="driver-profile-menu__logout"
+              onClick={() => { setShowProfileMenu(false); handleLogout(); }}
+            >
+              <SignOut size={16} weight="bold" />
+              Cerrar sesión
+            </button>
+            <button
+              type="button"
+              className="driver-profile-menu__close"
+              onClick={() => setShowProfileMenu(false)}
+            >
+              <X size={14} weight="bold" />
+            </button>
+          </div>
+        )}
+
+
+        <div className="driver-panel">
+          <div className="driver-panel__handle" />
+          <div className="driver-panel__content">
+            {activeTab === "home"      && renderHomeTab()}
+            {activeTab === "pedidos"   && renderPedidosTab()}
+            {activeTab === "billetera" && renderBilleteraTab()}
+            {activeTab === "perfil"    && renderPerfilTab()}
+          </div>
+          <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
+        </div>
+      </div>
     </div>
   );
 }

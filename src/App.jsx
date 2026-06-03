@@ -9,6 +9,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import { signInAnonymously, signOut } from "firebase/auth";
 import {
   BrowserRouter,
   Navigate,
@@ -20,7 +21,7 @@ import Login from "./pages/login/login";
 import Home from "./pages/home/home";
 import PedidoActivo from "./pages/pedidoactivo/pedidoactivo";
 import PwaUpdatePrompt from "./components/pwaupdate/pwaupdate";
-import { db } from "./firebaseconfig";
+import { db, auth } from "./firebaseconfig";
 
 const STORAGE_KEY = "userRep";
 
@@ -287,6 +288,8 @@ function App() {
         "appAccess.lastConnection": serverTimestamp(),
       });
 
+      await signInAnonymously(auth);
+
       setUser(sessionUser);
       setIsLoggedIn(true);
       setSessionMessage("");
@@ -303,6 +306,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    signOut(auth).catch(() => {});
     setUser(null);
     setIsLoggedIn(false);
     localStorage.removeItem(STORAGE_KEY);

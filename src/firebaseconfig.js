@@ -4,6 +4,7 @@ import { getFirestore } from "firebase/firestore";
 import { getMessaging } from "firebase/messaging";
 import { getFunctions } from "firebase/functions";
 import { getDatabase } from "firebase/database";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCc-QMneztyou0qbtnUnAp61ECGZtiAqjo",
@@ -19,6 +20,7 @@ export const app = initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
 export const rtdb = getDatabase(app);
+export const auth = getAuth(app);
 export const messaging = getMessaging(app);
 
 // Ojo: dejé us-central1 porque ahí desplegaste onOnlineOrderCreated.
