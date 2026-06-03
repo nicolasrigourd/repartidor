@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./home.css";
 
-import BottomBar from "../../components/bottombar/bottombar";
-import CardPedidoActivo from "../../components/cardpedidoactivo/cardpedidoactivo";
-import DriverHeatMap from "../../components/driverheatmap/DriverHeatMap";
-import DriverActionSheet from "../../components/driveractionsheet/DriverActionSheet";
+import BottomBar     from "../../components/bottombar/bottombar";
+import MapaRepartidor from "../../components/maparepartidor/MapaRepartidor";
+import OfertaPantalla from "../../components/ofertapantalla/OfertaPantalla";
+import {
+  OfflineCard,
+  OnlineStatusCard,
+  PedidoActivoCard,
+} from "../../components/drivercards/DriverCards";
 
 import {
   doc,
@@ -259,8 +263,8 @@ function Home({ repartidorId, user, onLogout }) {
         hint: "Mayor actividad probable",
         position: "leftTop",
         intensity: 8,
-        lat: null,
-        lng: null,
+        // Coordenadas reales Santiago del Estero — configurables desde admin en el futuro
+        lat: -27.7951, lng: -64.2615, radio: 700,
       },
       {
         id: "norte",
@@ -270,8 +274,7 @@ function Home({ repartidorId, user, onLogout }) {
         hint: "Buena zona de espera",
         position: "rightMiddle",
         intensity: 5,
-        lat: null,
-        lng: null,
+        lat: -27.760, lng: -64.255, radio: 550,
       },
       {
         id: "banda",
@@ -281,7 +284,7 @@ function Home({ repartidorId, user, onLogout }) {
         hint: "Mantenete disponible",
         position: "leftBottom",
         intensity: 2,
-        lat: null,
+        lat: -27.735, lng: -64.240, radio: 450,
         lng: null,
       },
     ],
@@ -1381,42 +1384,75 @@ function Home({ repartidorId, user, onLogout }) {
     );
   };
 
+  // ── Oferta: coordenadas del pickup para mostrar en el mapa ─
+  const ofertaPickupCoords = useMemo(() => {
+    if (!pedidoOfertado) return null;
+    const c = pedidoOfertado.pickup?.coords
+      || pedidoOfertado.originCoords
+      || pedidoOfertado.pickupCoords;
+    return c?.lat && c?.lng ? c : null;
+  }, [pedidoOfertado]);
+
+  // ── Indica si está conectando (para deshabilitar el botón) ──
+  const estaConectando = workStatus === "starting" || workStatus === "pending_admission";
+  const estaOnline     = ["online", "busy", "pending_admission", "starting"].includes(workStatus);
+
   return (
     <div className="driver-root">
-      <main className="driver-main">
-        <DriverHeatMap
-          ficha={ficha}
-          repartidorId={repartidorId}
-          nombreCompleto={nombreCompleto}
-          workStatus={workStatus}
-          geoStatus={geoStatus}
-          liveCoords={liveCoords}
-          pedidoActivo={pedidoActivo}
-          heatZones={heatZones}
-          onLogout={handleLogout}
-          onSelectZone={handleSelectHeatZone}
-        />
 
-        <div className="driver-content">
-          {activeTab === "home" && renderHomePanel()}
-          {activeTab === "pedidos" && renderPedidosPanel()}
-          {activeTab === "billetera" && renderBilleteraPanel()}
-          {activeTab === "perfil" && renderPerfilPanel()}
-        </div>
-      </main>
-
-      <DriverActionSheet
+      {/* ── MAPA — siempre como fondo ─────────────────────── */}
+      <MapaRepartidor
         workStatus={workStatus}
-        geoStatus={geoStatus}
-        geoError={geoError}
-        pedidoOfertado={pedidoOfertado}
-        pedidoActivo={pedidoActivo}
-        segundosOferta={20}
-        onAceptarOferta={handleAceptarOferta}
-        onRechazarOferta={handleRechazarOferta}
-        onTimeoutOferta={handleTimeoutOferta}
-        onFinalizarPedido={finalizarPedido}
+        liveCoords={liveCoords}
+        zonas={estaOnline ? heatZones : []}
+        ofertaCoords={ofertaPickupCoords}
+        pedidoActivo={workStatus === "busy" ? pedidoActivo : null}
       />
+
+      {/* ── OFFLINE: card con incentivo + botón conectar ─── */}
+      {!estaOnline && (
+        <OfflineCard
+          pedidosActivos={0}
+          gananciaUltima={ficha.dineroDisponible || 0}
+          onConectar={handleStartWork}
+          conectando={estaConectando}
+          errorConexion={geoError}
+        />
+      )}
+
+      {/* ── ONLINE: pill de estado arriba ────────────────── */}
+      {estaOnline && (
+        <OnlineStatusCard
+          workStatus={workStatus}
+          gananciaHoy={ficha.dineroDisponible || 0}
+          pedidosHoy={0}
+          onDesconectar={handleStopWork}
+        />
+      )}
+
+      {/* ── PEDIDO ACTIVO: mini card abajo ───────────────── */}
+      {workStatus === "busy" && pedidoActivo && (
+        <PedidoActivoCard
+          pedido={pedidoActivo}
+          onVerDetalle={() => {
+            const id = pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id;
+            if (id) navigate(`/pedido-activo/${id}`);
+          }}
+        />
+      )}
+
+      {/* ── OFERTA: pantalla completa ─────────────────────── */}
+      {pedidoOfertado && (
+        <OfertaPantalla
+          oferta={pedidoOfertado}
+          ttlMs={20000}
+          onAceptar={() => handleAceptarOferta(pedidoOfertado)}
+          onRechazar={(reason) => {
+            if (reason === "expired") handleTimeoutOferta(pedidoOfertado);
+            else handleRechazarOferta(pedidoOfertado);
+          }}
+        />
+      )}
 
       <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
     </div>

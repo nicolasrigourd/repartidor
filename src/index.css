@@ -1,23 +1,92 @@
-/* Reset básico */
-* {
+:root {
+  /* ── Fondos ───────────────────────────────────────────── */
+  --bg:        #0F1117;
+  --surface:   #1A1F2E;
+  --surface-2: #232A3B;
+  --surface-3: #2C3347;
+
+  /* ── Bordes ───────────────────────────────────────────── */
+  --border:       rgba(255,255,255,0.08);
+  --border-light: rgba(255,255,255,0.05);
+
+  /* ── Texto ────────────────────────────────────────────── */
+  --text-1: #F0F6FC;
+  --text-2: rgba(240,246,252,0.60);
+  --text-3: rgba(240,246,252,0.35);
+
+  /* ── Estados (semáforo del repartidor) ───────────────── */
+  --color-offline:  #6B7280;
+  --color-online:   #22C55E;
+  --color-busy:     #F97316;
+  --color-starting: #3B82F6;
+  --color-error:    #EF4444;
+  --color-offer:    #F59E0B;
+
+  /* ── Accent principal ─────────────────────────────────── */
+  --accent:      #22C55E;
+  --accent-soft: rgba(34,197,94,0.14);
+  --accent-dark: #16A34A;
+
+  /* ── Zonas de calor ───────────────────────────────────── */
+  --zone-hot:    rgba(239,68,68,0.35);
+  --zone-warm:   rgba(249,115,22,0.28);
+  --zone-cool:   rgba(59,130,246,0.22);
+
+  /* ── Sombras ──────────────────────────────────────────── */
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,0.7);
+
+  /* ── Radios ───────────────────────────────────────────── */
+  --r-sm:   10px;
+  --r-md:   16px;
+  --r-lg:   22px;
+  --r-full: 999px;
+
+  /* ── Easing ───────────────────────────────────────────── */
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ── Tiempos ──────────────────────────────────────────── */
+  --t-fast:   120ms;
+  --t-base:   200ms;
+  --t-slow:   350ms;
+
+  /* ── Tipografía ───────────────────────────────────────── */
+  --font: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* ── Safe areas ───────────────────────────────────────── */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
-html,
-body {
+html, body, #root {
+  width: 100%;
   height: 100%;
+  overflow: hidden; /* El mapa ocupa toda la pantalla */
 }
 
 body {
-  margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  background-color: #020617; /* fondo oscuro general */
-  color: #e5e7eb;
+  font-family: var(--font);
+  font-size: 15px;
+  background: var(--bg);
+  color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
 }
 
-#root {
-  min-height: 100vh;
-}
+button { font-family: var(--font); cursor: pointer; border: none; background: none; }
+input  { font-family: var(--font); }
+
+/* Leaflet fixes para pantalla completa */
+.leaflet-container { background: #e8e0d5; }
+.leaflet-control-attribution { display: none; }
+.leaflet-control-zoom { display: none; }

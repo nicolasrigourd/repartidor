@@ -1,0 +1,276 @@
+/* ── Spin ─────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.dc-spin { animation: spin 0.7s linear infinite; }
+
+/* ── OFFLINE CARD ─────────────────────────────────────────── */
+
+.dc-offline-card {
+  position: absolute;
+  bottom: calc(80px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: calc(100% - 32px);
+  max-width: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: slideUp 0.3s var(--ease-out-expo) both;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.dc-incentivo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: rgba(245,158,11,0.12);
+  border: 1px solid rgba(245,158,11,0.25);
+  color: #FCD34D;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.dc-incentivo svg { color: #F59E0B; flex-shrink: 0; }
+.dc-incentivo strong { font-weight: 700; }
+
+.dc-ultima-sesion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.dc-ultima-sesion svg { color: var(--color-online); }
+.dc-ultima-sesion strong { color: var(--text-2); font-weight: 600; }
+
+.dc-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-error);
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(239,68,68,0.1);
+}
+
+.dc-conectar-btn {
+  width: 100%;
+  height: 52px;
+  border-radius: var(--r-full);
+  background: var(--color-online);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 4px 20px rgba(34,197,94,0.4);
+  transition: transform var(--t-fast) var(--ease-in-out), opacity var(--t-fast);
+}
+
+.dc-conectar-btn:active { transform: scale(0.97); }
+.dc-conectar-btn--loading { opacity: 0.8; cursor: not-allowed; }
+
+/* ── STATUS PILL (online) ─────────────────────────────────── */
+
+.dc-status-pill {
+  position: absolute;
+  top: calc(16px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  box-shadow: var(--shadow-md);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  animation: fadeIn 0.25s var(--ease-out-expo) both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.driver-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.dc-earnings-mini {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: var(--r-full);
+  background: rgba(34,197,94,0.12);
+  border: 1px solid rgba(34,197,94,0.2);
+  color: var(--color-online);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ── Panel desconectar ────────────────────────────────────── */
+
+.dc-desconectar-panel {
+  position: absolute;
+  top: calc(60px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  box-shadow: var(--shadow-lg);
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: popIn 0.2s var(--ease-spring) both;
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: translateX(-50%) scale(0.9); }
+  to   { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+
+.dc-desconectar-panel p {
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.dc-desconectar-panel p strong { color: var(--text-1); font-weight: 700; }
+
+.dc-desconectar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  border-radius: var(--r-full);
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.3);
+  color: var(--color-error);
+  font-size: 14px;
+  font-weight: 700;
+  transition: background var(--t-fast);
+}
+
+.dc-desconectar-btn:active { background: rgba(239,68,68,0.2); }
+
+.dc-volver-btn {
+  height: 38px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background var(--t-fast);
+}
+
+/* ── PEDIDO ACTIVO CARD ───────────────────────────────────── */
+
+.dc-pedido-activo-card {
+  position: absolute;
+  bottom: calc(80px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: calc(100% - 32px);
+  max-width: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: background var(--t-fast);
+  animation: slideUp 0.3s var(--ease-out-expo) both;
+}
+
+.dc-pedido-activo-card:active { background: var(--surface-2); }
+
+.dc-pedido-activo-card__step {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dc-pedido-activo-card__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dc-pedido-activo-card__info p {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.dc-pedido-activo-card__info small {
+  font-size: 12px;
+  color: var(--text-3);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── ZONA SUGERIDA ────────────────────────────────────────── */
+
+.dc-zona-sugerida {
+  position: absolute;
+  bottom: calc(148px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(26,31,46,0.92);
+  border: 1px solid rgba(249,115,22,0.3);
+  border-radius: var(--r-full);
+  box-shadow: var(--shadow-md);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.dc-zona-sugerida strong { color: #F97316; font-weight: 700; }

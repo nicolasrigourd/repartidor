@@ -1,21 +1,9 @@
+/* ── Contenedor raíz — mapa como fondo ───────────────────── */
 .driver-root {
-  min-height: 100dvh;
-  height: 100dvh;
-  background: #f3f4f6;
-  color: #111827;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
-
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
-}
-
-.driver-main {
-  min-height: 0;
-  overflow: hidden;
-  position: relative;
-
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--bg, #0F1117);
 }
 
 /* ===============================
