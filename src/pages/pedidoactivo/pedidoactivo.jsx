@@ -7,8 +7,13 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { ref, update, remove } from "firebase/database";
+import {
+  ArrowLeft, MapPin, Phone, CaretDown, CaretUp,
+  Warning, CurrencyDollar, NavigationArrow,
+} from "@phosphor-icons/react";
 
 import { db, rtdb } from "../../firebaseconfig";
+import MapaNavegacion from "../../components/mapanavegacion/MapaNavegacion";
 import "./pedidoactivo.css";
 
 const STEP_CONFIG = {
@@ -322,6 +327,8 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   const [loading, setLoading] = useState(true);
   const [updatingStep, setUpdatingStep] = useState(false);
   const [error, setError] = useState("");
+  const [driverCoords, setDriverCoords] = useState(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const ficha = user?.ficha || user || {};
 
@@ -371,6 +378,28 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
     return () => unsubscribe();
   }, [orderId]);
+
+  // GPS en tiempo real para el mapa de navegación
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setDriverCoords(coords);
+        // Actualizar posición en RTDB para el Panel Admin
+        if (cadeteId) {
+          update(ref(rtdb, `driversLive/${cadeteId}`), {
+            lat: coords.lat, lng: coords.lng,
+            currentLat: coords.lat, currentLng: coords.lng,
+            lastSeen: Date.now(),
+          }).catch(() => {});
+        }
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, [cadeteId]);
 
   const data = useMemo(() => normalizePedido(pedido), [pedido]);
 
@@ -593,199 +622,232 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     releaseDriver,
   ]);
 
+  // ── Destino actual según el paso ──────────────────────────
+  const isGoingToPickup = ["go_to_pickup", "started_pickup", "arrived_pickup"].includes(step);
+  const currentDestination = isGoingToPickup
+    ? (data?.pickupCoords?.lat  ? data.pickupCoords  : null)
+    : (data?.dropoffCoords?.lat ? data.dropoffCoords : null);
+  const currentAddress = isGoingToPickup ? data?.pickupAddress : data?.dropoffAddress;
+  const mapsNavUrl     = isGoingToPickup
+    ? (getStepNavigationUrl?.("pickup") || mapsPickup)
+    : (getStepNavigationUrl?.("dropoff") || mapsDropoff);
+
+  // ── Progreso de pasos ──────────────────────────────────────
+  const STEP_ORDER = ["go_to_pickup", "started_pickup", "arrived_pickup", "go_to_dropoff", "arrived_dropoff"];
+  const stepIndex  = STEP_ORDER.indexOf(step);
+
+  // ── Loading / Error ────────────────────────────────────────
   if (loading) {
     return (
-      <main className="pedido-activo-page">
-        <div className="pedido-activo-loading">
-          <span className="pedido-activo-spinner" />
-          <p>Cargando pedido activo...</p>
+      <div className="pa-root">
+        <div className="pa-loading">
+          <span className="pa-spinner" />
+          <p>Cargando pedido...</p>
         </div>
-      </main>
+      </div>
     );
   }
 
   if (error && !data) {
     return (
-      <main className="pedido-activo-page">
-        <div className="pedido-activo-error">
-          <h2>No pudimos abrir el pedido</h2>
-          <p>{error}</p>
-          <button type="button" onClick={() => navigate("/", { replace: true })}>
-            Volver al inicio
-          </button>
-        </div>
-      </main>
+      <div className="pa-root pa-root--error">
+        <button className="pa-back-btn-standalone" onClick={() => navigate("/", { replace: true })}>
+          <ArrowLeft size={20} weight="bold" />
+        </button>
+        <h2>No pudimos abrir el pedido</h2>
+        <p>{error}</p>
+        <button className="pa-error-retry" onClick={() => navigate("/", { replace: true })}>
+          Volver al inicio
+        </button>
+      </div>
     );
   }
 
   if (!data) return null;
 
   return (
-    <main className="pedido-activo-page">
-      <section
-        className={`pedido-activo-hero pedido-activo-hero--${stepConfig.buttonVariant}`}
-      >
-        <div className="pedido-activo-topbar">
-          <button
-            type="button"
-            className="pedido-activo-back"
-            onClick={() => navigate("/", { replace: true })}
-          >
-            ←
-          </button>
+    <div className="pa-root">
 
-          <div>
-            <span>Modo pedido</span>
-            <strong>ID {data.id}</strong>
+      {/* ── MAPA — fondo completo ────────────────────────── */}
+      <MapaNavegacion
+        driverCoords={driverCoords}
+        destination={currentDestination}
+        stepType={isGoingToPickup ? "pickup" : "dropoff"}
+        followDriver
+      />
+
+      {/* ── TOP HUD — progreso + volver ─────────────────── */}
+      <div className="pa-top-hud">
+        <button className="pa-hud-btn" onClick={() => navigate("/", { replace: true })}>
+          <ArrowLeft size={20} weight="bold" />
+        </button>
+
+        <div className="pa-step-progress">
+          {STEP_ORDER.map((s, i) => (
+            <div
+              key={s}
+              className={`pa-step-dot ${
+                i < stepIndex  ? "pa-step-dot--done"   :
+                i === stepIndex ? "pa-step-dot--active" : ""
+              }`}
+            />
+          ))}
+        </div>
+
+        <div className="pa-hud-id">
+          <span>Pedido</span>
+          <strong>{data.id.slice(-6)}</strong>
+        </div>
+      </div>
+
+      {/* ── PANEL INFERIOR ──────────────────────────────── */}
+      <div className={`pa-panel ${isExpanded ? "pa-panel--expanded" : ""}`}>
+
+        {/* Handle — tap para expandir/colapsar */}
+        <button
+          className="pa-panel-handle-btn"
+          onClick={() => setIsExpanded(v => !v)}
+          aria-label={isExpanded ? "Colapsar detalles" : "Ver detalles"}
+        >
+          <div className="pa-panel-handle" />
+        </button>
+
+        {/* Sección siempre visible */}
+        <div className="pa-panel-top">
+          <div className="pa-step-badge">{stepConfig.badge}</div>
+          <p className="pa-dest-address">{currentAddress || "—"}</p>
+
+          <div className="pa-panel-ctas">
+            {mapsNavUrl && (
+              <a
+                className="pa-maps-btn"
+                href={mapsNavUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <NavigationArrow size={16} weight="fill" />
+                Navegar
+              </a>
+            )}
+            <button
+              className={`pa-action-btn pa-action-btn--${stepConfig.buttonVariant}`}
+              onClick={handleAdvanceStep}
+              disabled={updatingStep}
+            >
+              {updatingStep ? "Actualizando…" : stepConfig.actionLabel}
+            </button>
           </div>
+
+          {error && <div className="pa-inline-error">{error}</div>}
         </div>
 
-        <div className="pedido-activo-status">
-          <span>{stepConfig.badge}</span>
-          <h1>{stepConfig.title}</h1>
-          <p>{stepConfig.subtitle}</p>
-        </div>
+        {/* Detalles expandibles */}
+        {isExpanded && (
+          <div className="pa-details">
 
-        <div className="pedido-activo-main-actions pedido-activo-main-actions--single">
-          <button
-            type="button"
-            className={`pedido-activo-primary-btn pedido-activo-primary-btn--${stepConfig.buttonVariant}`}
-            onClick={handleAdvanceStep}
-            disabled={updatingStep}
-          >
-            {updatingStep ? "Actualizando..." : stepConfig.actionLabel}
-          </button>
-        </div>
+            {/* Alerta efectivo */}
+            {data.requiresCashHandling && (
+              <div className="pa-cash-alert">
+                <Warning size={15} weight="fill" />
+                <span>Pedido con manejo de dinero — verificá el importe</span>
+              </div>
+            )}
 
-        {stepConfig.helperText && (
-          <p className="pedido-activo-action-helper">{stepConfig.helperText}</p>
+            {/* Resumen financiero */}
+            <div className="pa-summary">
+              <div className="pa-summary-item">
+                <span>Importe</span>
+                <strong>{priceLabel || "—"}</strong>
+              </div>
+              <div className="pa-summary-item">
+                <span>Distancia</span>
+                <strong>{data.km != null ? `${Number(data.km).toFixed(1)} km` : "—"}</strong>
+              </div>
+              <div className="pa-summary-item">
+                <span>Pago</span>
+                <strong>
+                  {data.paymentMethod === "mercadopago" ? "MercadoPago" : "Efectivo"}
+                </strong>
+              </div>
+              <div className="pa-summary-item">
+                <span>Servicio</span>
+                <strong>{data.serviceType}</strong>
+              </div>
+            </div>
+
+            {/* Ruta */}
+            <div className="pa-route">
+              <div className="pa-route-point">
+                <div className="pa-route-dot pa-route-dot--a" />
+                <div>
+                  <span>Origen</span>
+                  <strong>{data.pickupAddress}</strong>
+                  {data.notesFrom && <p className="pa-notes">📝 {data.notesFrom}</p>}
+                </div>
+                {mapsPickup && (
+                  <a href={mapsPickup} target="_blank" rel="noreferrer" className="pa-mini-map-btn">
+                    <MapPin size={14} weight="fill" />
+                  </a>
+                )}
+              </div>
+              <div className="pa-route-line" />
+              <div className="pa-route-point">
+                <div className="pa-route-dot pa-route-dot--b" />
+                <div>
+                  <span>Destino</span>
+                  <strong>{data.dropoffAddress}</strong>
+                  {data.notesTo && <p className="pa-notes">📝 {data.notesTo}</p>}
+                </div>
+                {mapsDropoff && (
+                  <a href={mapsDropoff} target="_blank" rel="noreferrer" className="pa-mini-map-btn">
+                    <MapPin size={14} weight="fill" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* Contactos */}
+            <div className="pa-contacts">
+              <div className="pa-contact">
+                <div>
+                  <span>Destinatario</span>
+                  <strong>{data.recipientName}</strong>
+                </div>
+                <button
+                  className="pa-call-btn"
+                  onClick={() => callPhone(data.recipientPhone)}
+                  disabled={!data.recipientPhone || data.recipientPhone === "—"}
+                >
+                  <Phone size={16} weight="fill" />
+                  {data.recipientPhone !== "—" ? data.recipientPhone : "Sin teléfono"}
+                </button>
+              </div>
+              {data.contactFrom && data.contactFrom !== "—" && (
+                <div className="pa-contact">
+                  <div>
+                    <span>Origen</span>
+                    <strong>{data.contactFrom}</strong>
+                  </div>
+                  <button className="pa-call-btn" onClick={() => callPhone(data.contactFrom)}>
+                    <Phone size={16} weight="fill" />
+                    Llamar
+                  </button>
+                </div>
+              )}
+            </div>
+
+          </div>
         )}
-      </section>
 
-      {error && <div className="pedido-activo-inline-error">{error}</div>}
+        {/* Toggle expandir */}
+        <button className="pa-expand-toggle" onClick={() => setIsExpanded(v => !v)}>
+          {isExpanded
+            ? <><CaretDown size={14} weight="bold" /> Ocultar detalles</>
+            : <><CaretUp   size={14} weight="bold" /> Ver detalles del pedido</>}
+        </button>
 
-      <section className="pedido-activo-summary">
-        <article>
-          <span>Importe</span>
-          <strong>{priceLabel || "—"}</strong>
-        </article>
-
-        <article>
-          <span>Distancia</span>
-          <strong>
-            {data.km != null ? `${Number(data.km).toFixed(2)} km` : "—"}
-          </strong>
-        </article>
-
-        <article>
-          <span>Pago</span>
-          <strong>
-            {data.paymentMethod === "digital" ? "Digital" : "Efectivo"}
-          </strong>
-        </article>
-      </section>
-
-      {data.requiresCashHandling && (
-        <section className="pedido-activo-cash-alert">
-          <strong>Pedido con manejo de dinero</strong>
-          <span>Verificá el importe antes de finalizar la entrega.</span>
-        </section>
-      )}
-
-      <section className="pedido-activo-route-card">
-        <div className="pedido-activo-route-point">
-          <div className="pedido-activo-route-icon">A</div>
-          <div>
-            <span>Origen</span>
-            <strong>{data.pickupAddress}</strong>
-            {data.notesFrom && <p>{data.notesFrom}</p>}
-          </div>
-        </div>
-
-        <div className="pedido-activo-route-line" />
-
-        <div className="pedido-activo-route-point">
-          <div className="pedido-activo-route-icon pedido-activo-route-icon--dest">
-            B
-          </div>
-          <div>
-            <span>Destino</span>
-            <strong>{data.dropoffAddress}</strong>
-            {data.notesTo && <p>{data.notesTo}</p>}
-          </div>
-        </div>
-      </section>
-
-      <section className="pedido-activo-contact-card">
-        <div>
-          <span>Destinatario</span>
-          <strong>{data.recipientName}</strong>
-          <p>{data.recipientPhone}</p>
-        </div>
-
-        <div className="pedido-activo-contact-actions">
-          <button
-            type="button"
-            onClick={() => callPhone(data.recipientPhone)}
-            disabled={!data.recipientPhone || data.recipientPhone === "—"}
-          >
-            Llamar cliente
-          </button>
-
-          <button
-            type="button"
-            onClick={() => callPhone(data.contactFrom)}
-            disabled={!data.contactFrom || data.contactFrom === "—"}
-          >
-            Llamar origen
-          </button>
-        </div>
-      </section>
-
-      <section className="pedido-activo-info-grid">
-        <article>
-          <span>Servicio</span>
-          <strong>{data.serviceType}</strong>
-        </article>
-
-        <article>
-          <span>Tamaño</span>
-          <strong>{data.size}</strong>
-        </article>
-      </section>
-
-      <section className="pedido-activo-map-actions">
-        <a
-          className={!mapsPickup ? "is-disabled" : ""}
-          href={mapsPickup || "#"}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => !mapsPickup && e.preventDefault()}
-        >
-          Ver origen
-        </a>
-
-        <a
-          className={!mapsDropoff ? "is-disabled" : ""}
-          href={mapsDropoff || "#"}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => !mapsDropoff && e.preventDefault()}
-        >
-          Ver destino
-        </a>
-
-        <a
-          className={!mapsFullRoute ? "is-disabled" : ""}
-          href={mapsFullRoute || "#"}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => !mapsFullRoute && e.preventDefault()}
-        >
-          Ruta completa
-        </a>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
 
