@@ -1706,7 +1706,7 @@ function Home({ repartidorId, user, onLogout }) {
 
       {!estaOnline ? (
         /* MODO OFFLINE — info panel + mapa embebido */
-        <>
+        <div className="driver-home-offline">
           {renderHeader()}
           <div className="driver-offline-scroll">
             <div className="drv-money-row">
@@ -1733,7 +1733,7 @@ function Home({ repartidorId, user, onLogout }) {
             {renderActionButton()}
           </div>
           <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />
-        </>
+        </div>
       ) : (
         /* MODO ONLINE — mapa full screen */
         <>
