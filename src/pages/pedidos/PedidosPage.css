@@ -1,0 +1,104 @@
+.pp-root {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Stats bar */
+.pp-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid rgba(240,246,252,0.08);
+}
+
+.pp-stat {
+  padding: 14px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border-right: 1px solid rgba(240,246,252,0.06);
+}
+.pp-stat:last-child { border-right: none; }
+
+.pp-stat strong {
+  font-size: 16px;
+  font-weight: 800;
+  color: #f0f6fc;
+  letter-spacing: -0.02em;
+}
+.pp-stat--green strong { color: #86efac; }
+
+.pp-stat span {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(240,246,252,0.35);
+}
+
+/* Empty */
+.pp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 56px 24px;
+  text-align: center;
+  color: rgba(240,246,252,0.25);
+}
+.pp-empty span  { font-size: 15px; font-weight: 600; color: rgba(240,246,252,0.45); }
+.pp-empty small { font-size: 13px; color: rgba(240,246,252,0.3); }
+
+/* Groups */
+.pp-group { margin-bottom: 4px; }
+
+.pp-group__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px 6px;
+}
+.pp-group__date  { font-size: 12px; font-weight: 800; color: rgba(240,246,252,0.6); text-transform: uppercase; letter-spacing: 0.05em; }
+.pp-group__count { font-size: 11px; color: rgba(240,246,252,0.3); }
+
+/* Items */
+.pp-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid rgba(240,246,252,0.05);
+  transition: background 0.12s;
+}
+.pp-item:active { background: rgba(240,246,252,0.04); }
+.pp-item--cancelled { opacity: 0.6; }
+
+.pp-item__icon { flex-shrink: 0; line-height: 0; }
+
+.pp-item__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pp-item__route {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: rgba(240,246,252,0.75);
+}
+.pp-item__route svg  { flex-shrink: 0; color: rgba(240,246,252,0.3); }
+.pp-item__route span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.pp-item__time {
+  font-size: 11px;
+  color: rgba(240,246,252,0.3);
+}
+
+.pp-item__right    { flex-shrink: 0; }
+.pp-item__earn     { font-size: 15px; font-weight: 800; color: #86efac; }
+.pp-item__cancel   { font-size: 12px; font-weight: 600; color: rgba(239,68,68,0.65); }

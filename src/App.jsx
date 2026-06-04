@@ -22,6 +22,7 @@ import Home from "./pages/home/home";
 import PedidoActivo from "./pages/pedidoactivo/pedidoactivo";
 import PwaUpdatePrompt from "./components/pwaupdate/pwaupdate";
 import { db, auth } from "./firebaseconfig";
+import { startSync, stopSync } from "./services/dbSyncService";
 
 const STORAGE_KEY = "userRep";
 
@@ -39,6 +40,7 @@ function App() {
       const parsed = JSON.parse(stored);
 
       if (parsed?.loggedIn && parsed?.docId && parsed?.ficha?.id) {
+        startSync(parsed.docId);
         setUser(parsed);
         setIsLoggedIn(true);
       } else {
@@ -134,55 +136,56 @@ function App() {
   const sanitizeFicha = (repartidor) => {
     return {
       docId: repartidor.docId || repartidor.id,
-      id: repartidor.id || repartidor.docId,
+      id:    repartidor.id    || repartidor.docId,
 
-      nombre: repartidor.nombre || "",
-      apellido: repartidor.apellido || "",
-      dni: repartidor.dni || "",
-      domicilio: repartidor.domicilio || "",
-      celular: repartidor.celular || "",
-      fotoPerfil: repartidor.fotoPerfil || "",
-      observaciones: repartidor.observaciones || "",
+      // Nombre — inglés (firstName/lastName) o español (nombre/apellido)
+      nombre:   repartidor.firstName  || repartidor.nombre   || "",
+      apellido: repartidor.lastName   || repartidor.apellido || "",
+      dni:      repartidor.dni        || "",
+      domicilio: repartidor.address   || repartidor.domicilio || "",
+      celular:  repartidor.phone      || repartidor.celular   || "",
+      fotoPerfil:   repartidor.profilePhoto || repartidor.fotoPerfil || "",
+      observaciones: repartidor.notes || repartidor.observaciones   || "",
 
-      movilidad: repartidor.movilidad || "",
-      tipoRepartidor: repartidor.tipoRepartidor || "local",
-      sucursal: repartidor.sucursal || "",
+      // Operacional
+      movilidad:      repartidor.vehicle?.type || repartidor.mobility || repartidor.movilidad || "",
+      tipoRepartidor: repartidor.driverType    || repartidor.operationalMode || repartidor.tipoRepartidor || "local",
+      sucursal:       repartidor.branch        || repartidor.sucursal        || "",
 
-      usaApp: repartidor.usaApp === true,
-      activo: repartidor.activo !== false,
-      visible: repartidor.visible !== false,
-      bloqueado: repartidor.bloqueado === true,
-      aptoManejoDinero: repartidor.aptoManejoDinero === true,
+      // Flags
+      usaApp:          (repartidor.usesApp          ?? repartidor.usaApp)          === true,
+      activo:          (repartidor.active            ?? repartidor.activo)          !== false,
+      visible:         repartidor.visible                                           !== false,
+      bloqueado:       (repartidor.blocked           ?? repartidor.bloqueado)       === true,
+      aptoManejoDinero:(repartidor.cashHandlingApproved ?? repartidor.aptoManejoDinero) === true,
 
-      direccionBase: repartidor.direccionBase || "",
-      baseLat:
-        repartidor.baseLat === "" || repartidor.baseLat == null
-          ? null
-          : Number(repartidor.baseLat),
-      baseLng:
-        repartidor.baseLng === "" || repartidor.baseLng == null
-          ? null
-          : Number(repartidor.baseLng),
+      // Ubicación base
+      direccionBase: repartidor.baseAddress || repartidor.direccionBase || "",
+      baseLat: repartidor.baseLat == null || repartidor.baseLat === "" ? null : Number(repartidor.baseLat),
+      baseLng: repartidor.baseLng == null || repartidor.baseLng === "" ? null : Number(repartidor.baseLng),
 
-      dineroDisponible: Number(repartidor.dineroDisponible) || 0,
-      deudaActual: Number(repartidor.deudaActual) || 0,
-      multaActual: Number(repartidor.multaActual) || 0,
-      baseActual: Number(repartidor.baseActual) || 0,
+      // Economía — inglés (currentDebt/currentFine…) o español (deudaActual…)
+      dineroDisponible: Number(repartidor.cashOnHand        ?? repartidor.dineroDisponible) || 0,
+      dineroEnCuenta:   Number(repartidor.cashInAccount     ?? repartidor.dineroEnCuenta)   || 0,
+      deudaActual:      Number(repartidor.currentDebt       ?? repartidor.deudaActual)      || 0,
+      multaActual:      Number(repartidor.currentFine       ?? repartidor.multaActual)      || 0,
+      baseActual:       Number(repartidor.currentBase       ?? repartidor.baseActual)       || 0,
 
-      nivel: Number(repartidor.nivel) || 1,
-      valoracionesPositivas: Number(repartidor.valoracionesPositivas) || 0,
-      valoracionesNegativas: Number(repartidor.valoracionesNegativas) || 0,
-      strikes: Number(repartidor.strikes) || 0,
+      // Stats
+      nivel:                 Number(repartidor.level             ?? repartidor.nivel)                || 1,
+      valoracionesPositivas: Number(repartidor.positiveRatings   ?? repartidor.valoracionesPositivas)|| 0,
+      valoracionesNegativas: Number(repartidor.negativeRatings   ?? repartidor.valoracionesNegativas)|| 0,
+      strikes:               Number(repartidor.strikes)                                              || 0,
 
-      fechaAlta: repartidor.fechaAlta || "",
-      createdAt: repartidor.createdAt || null,
-      updatedAt: repartidor.updatedAt || null,
+      fechaAlta:  repartidor.startDate  || repartidor.fechaAlta  || "",
+      createdAt:  repartidor.createdAt  || null,
+      updatedAt:  repartidor.updatedAt  || null,
 
       appAccess: {
-        enabled: repartidor.appAccess?.enabled === true,
-        requiereCambioClave:
-          repartidor.appAccess?.requiereCambioClave === true,
-        lastConnection: repartidor.appAccess?.lastConnection || null,
+        enabled:              repartidor.appAccess?.enabled              === true,
+        requiereCambioClave:  repartidor.appAccess?.requiresPasswordChange
+                           ?? repartidor.appAccess?.requiereCambioClave  === true,
+        lastConnection:       repartidor.appAccess?.lastConnection || null,
       },
     };
   };
@@ -290,6 +293,8 @@ function App() {
 
       await signInAnonymously(auth);
 
+      startSync(repartidor.docId);
+
       setUser(sessionUser);
       setIsLoggedIn(true);
       setSessionMessage("");
@@ -306,6 +311,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    stopSync();
     signOut(auth).catch(() => {});
     setUser(null);
     setIsLoggedIn(false);
