@@ -27,6 +27,21 @@ const GEO_OPTIONS = {
   maximumAge: 0,
 };
 
+function haversineM(a, b) {
+  if (!a || !b) return Infinity;
+  const R = 6371000;
+  const toRad = x => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+const GPS_HOME_THRESHOLD_M  = 100;
+const GPS_HOME_HEARTBEAT_MS = 30_000;
+
 function HoldToConfirmButton({
   className = "",
   onStartHold,
@@ -178,8 +193,10 @@ function Home({ repartidorId, user, onLogout }) {
   const [offersLoaded, setOffersLoaded] = useState(false);
   const [activeOrderLoaded, setActiveOrderLoaded] = useState(false);
 
-  const watchIdRef = useRef(null);
-  const sessionIdRef = useRef(null);
+  const watchIdRef       = useRef(null);
+  const sessionIdRef     = useRef(null);
+  const lastGpsWriteRef  = useRef(null);
+  const gpsHeartbeatRef  = useRef(null);
 
   const gpsPrimeRef = useRef({
     status: "idle",
@@ -453,6 +470,11 @@ function Home({ repartidorId, user, onLogout }) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    if (gpsHeartbeatRef.current != null) {
+      clearInterval(gpsHeartbeatRef.current);
+      gpsHeartbeatRef.current = null;
+    }
+    lastGpsWriteRef.current = null;
   }, []);
 
   const markOfferAs = useCallback(
@@ -632,21 +654,26 @@ function Home({ repartidorId, user, onLogout }) {
     if (!navigator.geolocation) return;
     if (watchIdRef.current != null) return;
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      async (pos) => {
-        const nextCoords = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        };
+    const writeGps = async (nextCoords) => {
+      const activeOrderId =
+        pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id || null;
+      lastGpsWriteRef.current = nextCoords;
 
-        const activeOrderId =
-          pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id || null;
+      await patchAdmissionRequest({
+        trackingActive: true,
+        gpsStatus: "ok",
+        locationValid: true,
+        lat: nextCoords.lat,
+        lng: nextCoords.lng,
+        accuracy: nextCoords.accuracy ?? null,
+        estadoCadete: activeOrderId ? "en_pedido" : "disponible",
+        workStatus: activeOrderId ? "busy" : "idle",
+        currentOrderId: activeOrderId,
+        requestReason: activeOrderId ? "tracking_order" : "tracking_operational",
+      });
 
-        setLiveCoords(nextCoords);
-        setGeoStatus("granted");
-
-        await patchAdmissionRequest({
+      if (serverPresence) {
+        await patchDriverLive({
           trackingActive: true,
           gpsStatus: "ok",
           locationValid: true,
@@ -656,21 +683,30 @@ function Home({ repartidorId, user, onLogout }) {
           estadoCadete: activeOrderId ? "en_pedido" : "disponible",
           workStatus: activeOrderId ? "busy" : "idle",
           currentOrderId: activeOrderId,
-          requestReason: activeOrderId ? "tracking_order" : "tracking_operational",
         });
+      }
+    };
 
-        if (serverPresence) {
-          await patchDriverLive({
-            trackingActive: true,
-            gpsStatus: "ok",
-            locationValid: true,
-            lat: nextCoords.lat,
-            lng: nextCoords.lng,
-            accuracy: nextCoords.accuracy ?? null,
-            estadoCadete: activeOrderId ? "en_pedido" : "disponible",
-            workStatus: activeOrderId ? "busy" : "idle",
-            currentOrderId: activeOrderId,
-          });
+    const resetHeartbeat = (coords) => {
+      if (gpsHeartbeatRef.current != null) clearInterval(gpsHeartbeatRef.current);
+      gpsHeartbeatRef.current = setInterval(() => writeGps(coords), GPS_HOME_HEARTBEAT_MS);
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const nextCoords = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        };
+
+        setLiveCoords(nextCoords);
+        setGeoStatus("granted");
+
+        const moved = haversineM(lastGpsWriteRef.current, nextCoords);
+        if (moved >= GPS_HOME_THRESHOLD_M) {
+          await writeGps(nextCoords);
+          resetHeartbeat(nextCoords);
         }
       },
       async (error) => {

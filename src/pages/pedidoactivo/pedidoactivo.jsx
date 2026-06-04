@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   doc,
@@ -15,6 +15,30 @@ import {
 import { db, rtdb } from "../../firebaseconfig";
 import MapaNavegacion from "../../components/mapanavegacion/MapaNavegacion";
 import "./pedidoactivo.css";
+
+function haversineM(a, b) {
+  if (!a || !b) return Infinity;
+  const R = 6371000;
+  const toRad = x => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+function getGpsThresholdM(distanceKm) {
+  if (!distanceKm || distanceKm < 2) return 100;
+  if (distanceKm < 5) return 250;
+  return 500;
+}
+
+function getHeartbeatMs(distanceKm) {
+  if (!distanceKm || distanceKm < 2) return 20_000;
+  if (distanceKm < 5) return 30_000;
+  return 45_000;
+}
 
 const STEP_CONFIG = {
   go_to_pickup: {
@@ -330,6 +354,10 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   const [driverCoords, setDriverCoords] = useState(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const lastGpsWriteRef = useRef(null);
+  const gpsHeartbeatRef = useRef(null);
+  const routeDistKmRef  = useRef(null);
+
   const ficha = user?.ficha || user || {};
 
   const cadeteId = useMemo(() => {
@@ -379,29 +407,52 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     return () => unsubscribe();
   }, [orderId]);
 
-  // GPS en tiempo real para el mapa de navegación
+  // GPS en tiempo real para el mapa de navegación — throttle por distancia + heartbeat
   useEffect(() => {
     if (!navigator.geolocation) return;
+
+    const writeRtdb = (coords) => {
+      if (!cadeteId) return;
+      lastGpsWriteRef.current = coords;
+      update(ref(rtdb, `driversLive/${cadeteId}`), {
+        lat: coords.lat, lng: coords.lng,
+        currentLat: coords.lat, currentLng: coords.lng,
+        lastSeen: Date.now(),
+      }).catch(() => {});
+    };
+
+    const resetHeartbeat = (coords) => {
+      if (gpsHeartbeatRef.current) clearInterval(gpsHeartbeatRef.current);
+      gpsHeartbeatRef.current = setInterval(
+        () => writeRtdb(coords),
+        getHeartbeatMs(routeDistKmRef.current)
+      );
+    };
+
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setDriverCoords(coords);
-        // Actualizar posición en RTDB para el Panel Admin
-        if (cadeteId) {
-          update(ref(rtdb, `driversLive/${cadeteId}`), {
-            lat: coords.lat, lng: coords.lng,
-            currentLat: coords.lat, currentLng: coords.lng,
-            lastSeen: Date.now(),
-          }).catch(() => {});
+        setDriverCoords(coords); // siempre: mapa local fluido
+
+        const moved = haversineM(lastGpsWriteRef.current, coords);
+        if (moved >= getGpsThresholdM(routeDistKmRef.current)) {
+          writeRtdb(coords);
+          resetHeartbeat(coords);
         }
       },
       () => {},
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
     );
-    return () => navigator.geolocation.clearWatch(id);
+
+    return () => {
+      navigator.geolocation.clearWatch(id);
+      if (gpsHeartbeatRef.current) clearInterval(gpsHeartbeatRef.current);
+    };
   }, [cadeteId]);
 
   const data = useMemo(() => normalizePedido(pedido), [pedido]);
+
+  useEffect(() => { routeDistKmRef.current = data?.km ?? null; }, [data]);
 
   const step = data?.currentStep || "go_to_pickup";
   const stepConfig = STEP_CONFIG[step] || STEP_CONFIG.go_to_pickup;
