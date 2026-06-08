@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx eslint *)",
+      "Bash(git stash *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173 --max-time 3)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5174 --max-time 3)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 5174 -State Listen | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Get-Process -Id $_ | Select-Object Id, ProcessName, Path })",
+      "PowerShell(Stop-Process -Id 87584 -Force; Start-Sleep -Seconds 1; \\(Test-NetConnection -ComputerName localhost -Port 5174 -WarningAction SilentlyContinue\\).TcpTestSucceeded)",
+      "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\cardpedidoactivo\")",
+      "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\drivercards\")",
+      "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\driveractionsheet\")",
+      "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\driverheatmap\")",
+      "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\topbar\")"
+    ],
+    "additionalDirectories": [
+      "c:\\PWA-cadeteria\\Repartidor\\src\\components\\cardpedidoactivo"
+    ]
+  }
+}

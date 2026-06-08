@@ -8,15 +8,18 @@ import OfertaPantalla from "../../components/ofertapantalla/OfertaPantalla";
 import { Bell, UserCircle, SignOut, X, Trophy, House, WifiSlash, ListBullets } from "@phosphor-icons/react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { repartidorDb } from "../../db/repartidorDb";
+import { getProfile } from "../../services/dbSyncService";
 import PedidosPage   from "../pedidos/PedidosPage";
 import BilleteraPage from "../billetera/BilleteraPage";
 import PerfilPage    from "../perfil/PerfilPage";
+import ModalDeudaPago from "../../components/modaldeudapago/ModalDeudaPago";
 
 import {
   doc,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
+import { registrarPagoSimulado } from "../../services/pagosService";
 
 import { ref, set, update, onValue, off } from "firebase/database";
 import { db, rtdb } from "../../firebaseconfig";
@@ -162,20 +165,24 @@ function Home({ repartidorId, user, onLogout }) {
 
   // ── Stats desde IndexedDB (reactivos vía useLiveQuery) ────
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const mesKey   = useMemo(() => todayKey.slice(0, 7), [todayKey]);
 
   const statsHoy = useLiveQuery(
     () => repartidorDb.estadisticas.get(`hoy_${todayKey}`),
     [todayKey]
   );
-  const statsMes = useLiveQuery(
-    () => repartidorDb.estadisticas.get(`mes_${mesKey}`),
-    [mesKey]
-  );
   const statsTotal = useLiveQuery(
     () => repartidorDb.estadisticas.get("total"),
     []
   );
+
+  const [showDeudaModal, setShowDeudaModal] = useState(false);
+  const [deudaModal, setDeudaModal] = useState({ deuda: 0, multa: 0 });
+  const [pagoLoading, setPagoLoading] = useState(false);
+  const [pendingForcedDisconnect, setPendingForcedDisconnect] = useState(null);
+
+  // Para display en UI — ficha se actualiza via onSnapshot en App.jsx
+  const deudaActual = Number(ficha.deudaActual) || 0;
+  const multaActual = Number(ficha.multaActual) || 0;
 
   const [geoStatus, setGeoStatus] = useState("idle");
   const [geoError, setGeoError] = useState("");
@@ -847,6 +854,52 @@ function Home({ repartidorId, user, onLogout }) {
     writeAdmissionRequest,
   ]);
 
+  // Antes de iniciar el flujo de conexión, valida deuda/multa pendientes.
+  // Si tiene pagos pendientes, muestra el modal en lugar de pedir el GPS.
+  const handleConnectAttempt = useCallback(async () => {
+    const profile = await getProfile();
+    const debt = Number(profile?.currentDebt ?? profile?.deudaActual ?? 0);
+    const fine = Number(profile?.currentFine ?? profile?.multaActual ?? 0);
+    if (debt > 0 || fine > 0) {
+      setDeudaModal({ deuda: debt, multa: fine });
+      setShowDeudaModal(true);
+      return;
+    }
+    handleStartWork();
+  }, [handleStartWork]);
+
+  const handlePrimeGpsAttempt = useCallback(async () => {
+    const profile = await getProfile();
+    const debt = Number(profile?.currentDebt ?? profile?.deudaActual ?? 0);
+    const fine = Number(profile?.currentFine ?? profile?.multaActual ?? 0);
+    if (debt > 0 || fine > 0) return;
+    primeGpsPermissionRequest();
+  }, [primeGpsPermissionRequest]);
+
+  const handleCerrarDeudaModal = useCallback(() => {
+    setShowDeudaModal(false);
+  }, []);
+
+  const handlePagarDeuda = useCallback(async () => {
+    if (pagoLoading) return;
+    setPagoLoading(true);
+    try {
+      const result = await registrarPagoSimulado({
+        repartidorId: cadeteId,
+        deuda:        deudaModal.deuda,
+        multa:        deudaModal.multa,
+      });
+      if (result.ok) {
+        setShowDeudaModal(false);
+        handleStartWork();
+      }
+    } catch (err) {
+      console.error("[DEUDA] Error procesando pago:", err);
+    } finally {
+      setPagoLoading(false);
+    }
+  }, [pagoLoading, cadeteId, deudaModal, handleStartWork]);
+
   const handleCancelHoldStart = useCallback(() => {
     if (workStatus === "offline") {
       setGeoStatus("idle");
@@ -1070,6 +1123,45 @@ function Home({ repartidorId, user, onLogout }) {
     return () => stopGpsWatch();
   }, [stopGpsWatch]);
 
+  // ── Enforcement en tiempo real ────────────────────────────
+  // Detecta cambios en ficha mientras el repartidor está conectado.
+  // Si falla elegibilidad: desconecta inmediato si está libre,
+  // o marca desconexión pendiente si tiene pedido activo.
+  useEffect(() => {
+    const estaConectado = !["offline", "error"].includes(workStatus);
+    if (!estaConectado || isBootstrapping) return;
+
+    let razon = null;
+    if (deudaActual > 0 || multaActual > 0)
+      razon = "Tenés pagos pendientes registrados por la central.";
+    else if (ficha.bloqueado === true)
+      razon = "Tu cuenta fue bloqueada por la central.";
+    else if (ficha.activo === false)
+      razon = "Tu cuenta fue desactivada.";
+    else if (ficha.usaApp === false)
+      razon = "Se revocó tu acceso a la app.";
+    else if (ficha.visible === false)
+      razon = "Tu cuenta fue ocultada por la central.";
+
+    if (!razon) {
+      setPendingForcedDisconnect(null);
+      return;
+    }
+
+    if (pedidoActivo) {
+      setPendingForcedDisconnect(prev => prev || razon);
+    } else {
+      markOffline("forced_profile_change");
+    }
+  }, [deudaActual, multaActual, ficha.bloqueado, ficha.activo, ficha.usaApp, ficha.visible, workStatus, isBootstrapping, pedidoActivo, markOffline]);
+
+  // Ejecuta la desconexión pendiente cuando el repartidor termina su pedido
+  useEffect(() => {
+    if (!pendingForcedDisconnect || pedidoActivo) return;
+    setPendingForcedDisconnect(null);
+    markOffline("forced_after_delivery");
+  }, [pedidoActivo, pendingForcedDisconnect, markOffline]);
+
   // GPS preview — posición local cuando offline, sin escribir a Firebase
   useEffect(() => {
     const isOnline = ["online", "busy", "pending_admission", "starting"].includes(workStatus);
@@ -1190,266 +1282,7 @@ function Home({ repartidorId, user, onLogout }) {
     [rechazarOferta]
   );
 
-  const renderMainAction = () => {
-    if (isBootstrapping) {
-      return (
-        <button className="driver-main-action driver-main-action--loading" disabled>
-          Sincronizando estado...
-        </button>
-      );
-    }
 
-    if (workStatus === "offline") {
-      return (
-        <HoldToConfirmButton
-          className="driver-main-action driver-main-action--go"
-          onStartHold={primeGpsPermissionRequest}
-          onCancelHold={handleCancelHoldStart}
-          onConfirm={handleStartWork}
-          holdMs={3000}
-          holdingText="Activando GPS..."
-        >
-          Mantener para solicitar ingreso online
-        </HoldToConfirmButton>
-      );
-    }
-
-    if (workStatus === "starting" || workStatus === "pending_admission") {
-      return (
-        <button className="driver-main-action driver-main-action--loading" disabled>
-          Validando ingreso...
-        </button>
-      );
-    }
-
-    if (workStatus === "online") {
-      return (
-        <button
-          className="driver-main-action driver-main-action--stop"
-          onClick={handleStopWork}
-        >
-          Dejar de trabajar
-        </button>
-      );
-    }
-
-    if (workStatus === "busy") {
-      return (
-        <button
-          className="driver-main-action driver-main-action--busy"
-          onClick={() => {
-            const activeOrderId =
-              pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id;
-            if (activeOrderId) navigate(`/pedido-activo/${activeOrderId}`);
-          }}
-        >
-          Continuar pedido
-        </button>
-      );
-    }
-
-    return (
-      <HoldToConfirmButton
-        className="driver-main-action driver-main-action--go"
-        onStartHold={primeGpsPermissionRequest}
-        onCancelHold={handleCancelHoldStart}
-        onConfirm={handleStartWork}
-        holdMs={3000}
-        holdingText="Solicitando ubicación..."
-      >
-        Mantener para reintentar ingreso
-      </HoldToConfirmButton>
-    );
-  };
-
-  const renderServerBox = () => {
-    if (admissionState?.admissionStatus === "approved") {
-      return (
-        <div className="driver-mini-server-box">
-          <strong>Estado server:</strong> Habilitado para ofertas
-        </div>
-      );
-    }
-
-    if (admissionState?.admissionStatus === "rejected") {
-      return (
-        <div className="driver-mini-server-box">
-          <strong>Estado server:</strong> Rechazado
-        </div>
-      );
-    }
-
-    if (admissionState?.admissionStatus === "pending") {
-      return (
-        <div className="driver-mini-server-box">
-          <strong>Estado server:</strong> En validación
-        </div>
-      );
-    }
-
-    return null;
-  };
-
-  const renderHomePanel = () => {
-    return (
-      <>
-        <section className="driver-status-card">
-          <div className="driver-status-top">
-            <span className={`driver-status-dot driver-status-dot--${workStatus}`} />
-            <span>{statusCopy.pill}</span>
-          </div>
-
-          <h1>{statusCopy.label}</h1>
-          <p>{statusCopy.text}</p>
-
-          {renderMainAction()}
-          {renderServerBox()}
-
-          {geoError && <div className="driver-error-box">{geoError}</div>}
-        </section>
-
-        <section className="driver-mini-grid">
-          <article className="driver-mini-card">
-            <span>Nivel</span>
-            <strong>{ficha.nivel || 1}</strong>
-          </article>
-
-          <article className="driver-mini-card">
-            <span>Dinero</span>
-            <strong>{ficha.aptoManejoDinero ? "Apto" : "No apto"}</strong>
-          </article>
-
-          <article className="driver-mini-card">
-            <span>Deuda</span>
-            <strong>{formatMoney(ficha.deudaActual)}</strong>
-          </article>
-
-          <article className="driver-mini-card">
-            <span>Base</span>
-            <strong>{formatMoney(ficha.baseActual)}</strong>
-          </article>
-        </section>
-      </>
-    );
-  };
-
-  const renderPedidosPanel = () => {
-    return (
-      <section className="driver-bottom-sheet driver-bottom-sheet--full">
-        <div className="driver-sheet-handle" />
-
-        <div className="driver-sheet-header">
-          <div>
-            <h2>Pedidos</h2>
-            <p>Gestioná tu pedido activo.</p>
-          </div>
-        </div>
-
-        {pedidoActivo ? (
-          <CardPedidoActivo pedido={pedidoActivo} onFinalizar={finalizarPedido} />
-        ) : (
-          <div className="driver-empty-order">
-            <div className="driver-empty-icon">□</div>
-            <strong>No tenés pedidos activos</strong>
-            <span>Cuando aceptes o recibas un pedido, aparecerá en esta sección.</span>
-          </div>
-        )}
-      </section>
-    );
-  };
-
-  const renderBilleteraPanel = () => {
-    return (
-      <section className="driver-bottom-sheet driver-bottom-sheet--full">
-        <div className="driver-sheet-handle" />
-
-        <div className="driver-sheet-header">
-          <div>
-            <h2>Billetera</h2>
-            <p>Resumen económico del repartidor.</p>
-          </div>
-        </div>
-
-        <div className="driver-wallet-grid">
-          <article>
-            <span>Dinero disponible</span>
-            <strong>{formatMoney(ficha.dineroDisponible)}</strong>
-          </article>
-
-          <article>
-            <span>Dinero en cuenta</span>
-            <strong>{formatMoney(ficha.dineroEnCuenta)}</strong>
-          </article>
-
-          <article>
-            <span>Deuda actual</span>
-            <strong>{formatMoney(ficha.deudaActual)}</strong>
-          </article>
-
-          <article>
-            <span>Multa actual</span>
-            <strong>{formatMoney(ficha.multaActual)}</strong>
-          </article>
-
-          <article>
-            <span>Base actual</span>
-            <strong>{formatMoney(ficha.baseActual)}</strong>
-          </article>
-        </div>
-      </section>
-    );
-  };
-
-  const renderPerfilPanel = () => {
-    return (
-      <section className="driver-bottom-sheet driver-bottom-sheet--full">
-        <div className="driver-sheet-handle" />
-
-        <div className="driver-sheet-header">
-          <div>
-            <h2>Perfil</h2>
-            <p>Ficha del repartidor logueado.</p>
-          </div>
-        </div>
-
-        <div className="driver-profile-list">
-          <div>
-            <span>ID</span>
-            <strong>{ficha.id || repartidorId}</strong>
-          </div>
-
-          <div>
-            <span>Nombre</span>
-            <strong>{nombreCompleto || "Repartidor"}</strong>
-          </div>
-
-          <div>
-            <span>Movilidad</span>
-            <strong>{ficha.movilidad || "-"}</strong>
-          </div>
-
-          <div>
-            <span>Sucursal</span>
-            <strong>{ficha.sucursal || "-"}</strong>
-          </div>
-
-          <div>
-            <span>Tipo</span>
-            <strong>{ficha.tipoRepartidor || "-"}</strong>
-          </div>
-
-          <div>
-            <span>Celular</span>
-            <strong>{ficha.celular || "-"}</strong>
-          </div>
-        </div>
-
-        <button className="driver-logout-btn" onClick={handleLogout}>
-          Cerrar sesión
-        </button>
-      </section>
-    );
-  };
 
   // ── Oferta: coordenadas del pickup para mostrar en el mapa ─
   const ofertaPickupCoords = useMemo(() => {
@@ -1545,7 +1378,7 @@ function Home({ repartidorId, user, onLogout }) {
     }
     if (workStatus === "offline" || workStatus === "error") {
       return (
-        <button className="drv-action drv-action--connect" onClick={handleStartWork}>
+        <button className="drv-action drv-action--connect" onClick={handleConnectAttempt}>
           Conectarme
         </button>
       );
@@ -1578,130 +1411,6 @@ function Home({ repartidorId, user, onLogout }) {
     return null;
   };
 
-  // ── (dead code — tabs now are full pages) ─────────────────
-  const renderHomeTab = () => {
-    const pedidosHoy  = statsHoy?.pedidosCompletados  ?? 0;
-    const gananciaHoy = statsHoy?.gananciaTotal        ?? 0;
-    const pedidosMes  = statsMes?.pedidosCompletados   ?? 0;
-    const rating      = statsTotal?.avgRating           ?? null;
-
-    return (
-      <div className="drv-home-tab">
-        {/* Estado operativo */}
-        <div className="drv-status-row">
-          <span className={`drv-status-dot drv-status-dot--${workStatus}`} />
-          <div className="drv-status-text">
-            <strong>{statusCopy.label}</strong>
-            <small>{statusCopy.text}</small>
-          </div>
-        </div>
-
-        {geoError && <div className="drv-error-box">{geoError}</div>}
-
-        {/* Fila 1 — Stats operacionales (IndexedDB) */}
-        <div className="drv-stats-row">
-          <div className="drv-stat-card drv-stat-card--accent">
-            <div className="drv-stat-card__icon"><Package size={16} weight="fill" /></div>
-            <strong>{pedidosHoy}</strong>
-            <span>Pedidos hoy</span>
-          </div>
-          <div className="drv-stat-card drv-stat-card--green">
-            <div className="drv-stat-card__icon"><ArrowUp size={16} weight="bold" /></div>
-            <strong>{formatMoney(gananciaHoy)}</strong>
-            <span>Ganancia hoy</span>
-          </div>
-          <div className="drv-stat-card">
-            <div className="drv-stat-card__icon"><Package size={16} weight="regular" /></div>
-            <strong>{pedidosMes}</strong>
-            <span>Este mes</span>
-          </div>
-          <div className="drv-stat-card">
-            <div className="drv-stat-card__icon"><Star size={16} weight="fill" color="#FBBF24" /></div>
-            <strong>{rating !== null ? rating.toFixed(1) : "—"}</strong>
-            <span>Rating</span>
-          </div>
-        </div>
-
-        {/* Fila 2 — Estado financiero (ficha / Firestore) */}
-        <div className="drv-metrics">
-          <div className="drv-metric">
-            <span>Disponible</span>
-            <strong>{formatMoney(ficha.dineroDisponible)}</strong>
-          </div>
-          <div className="drv-metric">
-            <span>Deuda</span>
-            <strong className={ficha.deudaActual > 0 ? "drv-metric--danger" : ""}>
-              {formatMoney(ficha.deudaActual)}
-            </strong>
-          </div>
-          <div className="drv-metric">
-            <span>Base</span>
-            <strong>{formatMoney(ficha.baseActual)}</strong>
-          </div>
-          <div className="drv-metric">
-            <span>Multa</span>
-            <strong className={ficha.multaActual > 0 ? "drv-metric--danger" : ""}>
-              {formatMoney(ficha.multaActual)}
-            </strong>
-          </div>
-        </div>
-
-        {renderActionButton()}
-      </div>
-    );
-  };
-
-  // ── Pedidos tab ────────────────────────────────────────────
-  const renderPedidosTab = () => (
-    <div className="drv-tab-content">
-      <p className="drv-tab-title">Pedidos</p>
-      {pedidoActivo ? (
-        <PedidoActivoCard
-          pedido={pedidoActivo}
-          onVerDetalle={() => {
-            const id = pedidoActivo?._docId || pedidoActivo?.orderId || pedidoActivo?.id;
-            if (id) navigate(`/pedido-activo/${id}`);
-          }}
-        />
-      ) : (
-        <div className="drv-empty-state">
-          <span>Sin pedidos activos</span>
-          <small>Cuando aceptes un pedido aparecerá aquí.</small>
-        </div>
-      )}
-    </div>
-  );
-
-  // ── Billetera tab ──────────────────────────────────────────
-  const renderBilleteraTab = () => (
-    <div className="drv-tab-content">
-      <p className="drv-tab-title">Billetera</p>
-      <div className="drv-wallet-grid">
-        <article><span>Disponible</span><strong>{formatMoney(ficha.dineroDisponible)}</strong></article>
-        <article><span>En cuenta</span><strong>{formatMoney(ficha.dineroEnCuenta || 0)}</strong></article>
-        <article><span>Deuda</span><strong>{formatMoney(ficha.deudaActual)}</strong></article>
-        <article><span>Multa</span><strong>{formatMoney(ficha.multaActual)}</strong></article>
-        <article><span>Base hoy</span><strong>{formatMoney(ficha.baseActual)}</strong></article>
-      </div>
-    </div>
-  );
-
-  // ── Perfil tab ─────────────────────────────────────────────
-  const renderPerfilTab = () => (
-    <div className="drv-tab-content">
-      <p className="drv-tab-title">Perfil</p>
-      <div className="drv-profile-list">
-        <div><span>ID</span><strong>{ficha.id || repartidorId}</strong></div>
-        <div><span>Nombre</span><strong>{nombreCompleto || "—"}</strong></div>
-        <div><span>Movilidad</span><strong>{ficha.movilidad || "—"}</strong></div>
-        <div><span>Sucursal</span><strong>{ficha.sucursal || "—"}</strong></div>
-        <div><span>Celular</span><strong>{ficha.celular || "—"}</strong></div>
-      </div>
-      <button className="drv-logout-btn" onClick={handleLogout}>
-        Cerrar sesión
-      </button>
-    </div>
-  );
 
   // ── Tabs que no son home → página completa ────────────────
   if (activeTab !== "home") {
@@ -1739,6 +1448,15 @@ function Home({ repartidorId, user, onLogout }) {
           }}
         />
       )}
+
+      <ModalDeudaPago
+        open={showDeudaModal}
+        deuda={deudaModal.deuda}
+        multa={deudaModal.multa}
+        loading={pagoLoading}
+        onPagar={handlePagarDeuda}
+        onCancelar={handleCerrarDeudaModal}
+      />
 
       {!estaOnline ? (
         /* MODO OFFLINE — info panel + mapa embebido */

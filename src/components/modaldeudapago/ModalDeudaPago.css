@@ -1,0 +1,128 @@
+.deuda-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(17, 24, 39, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.deuda-modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  border-radius: 24px;
+  padding: 24px 20px 20px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(17, 24, 39, 0.35);
+  text-align: center;
+}
+
+.deuda-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.deuda-modal-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.deuda-modal-card h2 {
+  margin: 0 0 6px;
+  color: #111827;
+  font-size: 1.15rem;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+}
+
+.deuda-modal-card p {
+  margin: 0 0 18px;
+  color: #6b7280;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  font-weight: 650;
+}
+
+.deuda-modal-breakdown {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.deuda-modal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #f3f4f6;
+}
+
+.deuda-modal-row span {
+  color: #6b7280;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.deuda-modal-row strong {
+  color: #111827;
+  font-size: 0.95rem;
+  font-weight: 950;
+}
+
+.deuda-modal-row--total {
+  background: #fef3c7;
+}
+
+.deuda-modal-row--total span,
+.deuda-modal-row--total strong {
+  color: #92400e;
+}
+
+.deuda-modal-btn {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 16px;
+  font-size: 0.92rem;
+  font-weight: 950;
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+
+.deuda-modal-btn:active {
+  transform: scale(0.985);
+}
+
+.deuda-modal-btn--mp {
+  background: #009ee3;
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(0, 158, 227, 0.28);
+}
+
+.deuda-modal-btn--cancel {
+  background: #f3f4f6;
+  color: #6b7280;
+  margin-top: 8px;
+}

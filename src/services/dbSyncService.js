@@ -41,7 +41,17 @@ export function startSync(repartidorId) {
   stopSync();
   syncRepartidorId = repartidorId;
   _syncProfile(repartidorId);
-  _syncHistorial(repartidorId);
+  // _syncHistorial deshabilitado hasta crear índice compuesto en Firestore:
+  // assignedDriverId ASC + status ASC + createdAtMs DESC en colección orders
+  // _syncHistorial(repartidorId);
+}
+
+// Llamado desde App.jsx cada vez que onSnapshot del repartidor recibe datos frescos
+export async function updateProfile(data) {
+  if (!data) return;
+  return repartidorDb.profile
+    .put({ _key: "me", ...data, _syncedAt: Date.now() })
+    .catch((err) => console.error("[dbSync] Error guardando perfil en IndexedDB:", err));
 }
 
 export function stopSync() {
@@ -50,25 +60,19 @@ export function stopSync() {
   syncRepartidorId = null;
 }
 
-// ── Sync perfil ───────────────────────────────────────────
-// Firestore repartidores/{id} → store "profile" (_key: "me")
+
+// ── Sync perfil ──────────────────────────────────────────
+// Escucha repartidores/{id} en tiempo real y mantiene IndexedDB actualizado
 
 function _syncProfile(repartidorId) {
-  const ref = doc(db, "repartidores", repartidorId);
-
   const unsub = onSnapshot(
-    ref,
+    doc(db, "repartidores", String(repartidorId)),
     (snap) => {
       if (!snap.exists()) return;
-      repartidorDb.profile.put({
-        _key: "me",
-        ...snap.data(),
-        _syncedAt: Date.now(),
-      });
+      updateProfile(snap.data());
     },
     (err) => console.error("[dbSync] Error sincronizando perfil:", err)
   );
-
   unsubscribers.push(unsub);
 }
 

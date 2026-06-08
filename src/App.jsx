@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   collection,
   doc,
@@ -9,7 +9,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { signInAnonymously, signOut } from "firebase/auth";
+import { onAuthStateChanged, signInAnonymously, signOut } from "firebase/auth";
 import {
   BrowserRouter,
   Navigate,
@@ -22,43 +22,48 @@ import Home from "./pages/home/home";
 import PedidoActivo from "./pages/pedidoactivo/pedidoactivo";
 import PwaUpdatePrompt from "./components/pwaupdate/pwaupdate";
 import { db, auth } from "./firebaseconfig";
-import { startSync, stopSync } from "./services/dbSyncService";
-
-const STORAGE_KEY = "userRep";
+import { startSync, stopSync, updateProfile } from "./services/dbSyncService";
+import { saveSession, getSession, clearSession } from "./services/sessionService";
 
 function App() {
   const [user, setUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(true);
   const [sessionMessage, setSessionMessage] = useState("");
+  const sessionRestored = useRef(false);
 
+  // Restaura sesión desde IndexedDB al montar.
+  // isRestoring=true evita mostrar Login mientras se lee IndexedDB.
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-
-    if (!stored) return;
-
-    try {
-      const parsed = JSON.parse(stored);
-
-      if (parsed?.loggedIn && parsed?.docId && parsed?.ficha?.id) {
-        startSync(parsed.docId);
-        setUser(parsed);
-        setIsLoggedIn(true);
-      } else {
-        localStorage.removeItem(STORAGE_KEY);
+    getSession().then((parsed) => {
+      if (!parsed?.loggedIn || !parsed?.docId || !parsed?.ficha?.id) {
+        setIsRestoring(false);
+        return;
       }
-    } catch (err) {
-      console.error("Error leyendo userRep:", err);
-      localStorage.removeItem(STORAGE_KEY);
-    }
+
+      signInAnonymously(auth)
+        .then(() => {
+          sessionRestored.current = true;
+          startSync(parsed.docId);
+          setUser(parsed);
+          setIsLoggedIn(true);
+        })
+        .catch((err) => {
+          console.error("Error restaurando sesión anónima:", err);
+          clearSession();
+        })
+        .finally(() => setIsRestoring(false));
+    }).catch(() => setIsRestoring(false));
   }, []);
 
   useEffect(() => {
+    if (!sessionRestored.current && !isLoggedIn) return;
     if (user) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+      saveSession(user);
     } else {
-      localStorage.removeItem(STORAGE_KEY);
+      clearSession();
     }
-  }, [user]);
+  }, [user, isLoggedIn]);
 
   useEffect(() => {
     if (!isLoggedIn || !user?.docId) return;
@@ -86,6 +91,8 @@ function App() {
         }
 
         const updatedSession = buildSessionUser(repartidor);
+
+        updateProfile(snap.data());
 
         setUser((prev) => ({
           ...updatedSession,
@@ -229,7 +236,7 @@ function App() {
     setSessionMessage(message || "Sesión finalizada por la central.");
     setUser(null);
     setIsLoggedIn(false);
-    localStorage.removeItem(STORAGE_KEY);
+    clearSession();
   };
 
   const handleLogin = async (username, password) => {
@@ -313,9 +320,9 @@ function App() {
   const handleLogout = () => {
     stopSync();
     signOut(auth).catch(() => {});
+    clearSession();
     setUser(null);
     setIsLoggedIn(false);
-    localStorage.removeItem(STORAGE_KEY);
   };
 
   const renderLogin = () => {
@@ -370,6 +377,8 @@ function App() {
       </Routes>
     );
   };
+
+  if (isRestoring) return null;
 
   return (
     <BrowserRouter>

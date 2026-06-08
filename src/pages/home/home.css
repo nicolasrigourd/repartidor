@@ -182,6 +182,23 @@
   letter-spacing: -0.02em;
 }
 
+.driver-forced-disconnect-banner {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(239, 68, 68, 0.92);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 10px;
+  max-width: 90vw;
+  text-align: center;
+  z-index: 30;
+  backdrop-filter: blur(6px);
+}
+
 .driver-online-bottombar {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
