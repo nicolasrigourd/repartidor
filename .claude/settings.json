@@ -11,7 +11,9 @@
       "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\drivercards\")",
       "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\driveractionsheet\")",
       "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\driverheatmap\")",
-      "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\topbar\")"
+      "Bash(Remove-Item -Recurse -Force \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\components\\\\topbar\")",
+      "Bash(Test-Path \"c:\\\\PWA-cadeteria\\\\Repartidor\\\\src\\\\sw.js\")",
+      "Bash(npm run *)"
     ],
     "additionalDirectories": [
       "c:\\PWA-cadeteria\\Repartidor\\src\\components\\cardpedidoactivo"

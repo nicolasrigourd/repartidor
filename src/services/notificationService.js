@@ -8,11 +8,10 @@ const VAPID_KEY =
 async function getSwRegistration() {
   if (!("serviceWorker" in navigator)) return null;
   try {
-    await navigator.serviceWorker.register("/fcm-sw.js", { scope: "/" });
-    // Espera a que el SW esté activo antes de pedir el token
+    // Usa el SW unificado que registra vite-plugin-pwa (sw.js)
     return await navigator.serviceWorker.ready;
   } catch (err) {
-    console.error("[FCM] Error registrando service worker:", err);
+    console.error("[FCM] Error obteniendo SW activo:", err);
     return null;
   }
 }
