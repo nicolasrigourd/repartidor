@@ -117,12 +117,12 @@
 
 /* Mapa preview (offline) */
 .drv-map-preview {
-  height: 200px;
+  flex: 1;
+  min-height: 120px;
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(240,246,252,0.08);
   position: relative;
-  flex-shrink: 0;
 }
 
 /* ── Online mode flotantes ────────────────────────────────── */

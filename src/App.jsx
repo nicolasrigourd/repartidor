@@ -24,6 +24,7 @@ import PwaUpdatePrompt from "./components/pwaupdate/pwaupdate";
 import { db, auth } from "./firebaseconfig";
 import { startSync, stopSync, updateProfile } from "./services/dbSyncService";
 import { saveSession, getSession, clearSession } from "./services/sessionService";
+import { initNotifications } from "./services/notificationService";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -47,6 +48,7 @@ function App() {
           startSync(parsed.docId);
           setUser(parsed);
           setIsLoggedIn(true);
+          initNotifications(parsed.docId).catch(() => {});
         })
         .catch((err) => {
           console.error("Error restaurando sesión anónima:", err);
@@ -301,6 +303,7 @@ function App() {
       await signInAnonymously(auth);
 
       startSync(repartidor.docId);
+      initNotifications(repartidor.docId).catch(() => {});
 
       setUser(sessionUser);
       setIsLoggedIn(true);
