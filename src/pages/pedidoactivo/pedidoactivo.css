@@ -337,6 +337,8 @@
 .pa-route-dot--b { background: #EF4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.2); }
 .pa-route-line   { width: 1px; height: 14px; background: rgba(240,246,252,0.12); margin: 4px 0 4px 5px; }
 .pa-notes        { font-size: 11px; color: rgba(251,191,36,0.7); margin-top: 3px; }
+.pa-cart-list    { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.pa-cart-list li { font-size: 11px; color: rgba(255,255,255,0.7); line-height: 1.35; word-break: break-word; }
 .pa-mini-map-btn {
   flex-shrink: 0; width: 32px; height: 32px; border-radius: 8px;
   background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2);

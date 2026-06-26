@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   MapPin, Clock, CurrencyDollar, ArrowDown,
-  X, Check, Warning, Phone, SealPercent,
+  X, Check, Warning, Phone, SealPercent, NavigationArrow,
 } from "@phosphor-icons/react";
 import "./OfertaPantalla.css";
 
@@ -79,10 +79,17 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
   const distanciaKm   = oferta.route?.distanceKm;
   const durationMin   = oferta.route?.durationMin;
 
+  const driverDistanciaKm = oferta.driverDistanceKm;
+  const driverDistanciaLabel = fmtKm(driverDistanciaKm);
+  const driverEtaLabel       = fmtMin(null, driverDistanciaKm);
+
   const pickupAddr    = oferta.pickup?.address || "Origen";
   const pickupPhone   = oferta.pickup?.contact?.phone;
   const pickupNotes   = oferta.pickup?.notes;
   const pickupFloor   = [oferta.pickup?.floor, oferta.pickup?.apartment].filter(Boolean).join(" ");
+
+  const esCompras     = oferta.service?.type === "compras";
+  const productList   = Array.isArray(oferta.productList) ? oferta.productList : [];
 
   const dropoffAddr   = oferta.dropoff?.address || "Destino";
   const dropoffName   = oferta.dropoff?.contact?.fullName || oferta.recipient?.name;
@@ -142,13 +149,27 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
           )}
         </div>
 
+        {/* Distancia/tiempo del repartidor hasta el punto de retiro */}
+        {(driverDistanciaLabel || driverEtaLabel) && (
+          <div className="op-pickup-distance">
+            <NavigationArrow size={16} weight="fill" />
+            <span>
+              Estás a{" "}
+              {driverDistanciaLabel && <strong>{driverDistanciaLabel}</strong>}
+              {driverDistanciaLabel && driverEtaLabel && " · "}
+              {driverEtaLabel && <strong>{driverEtaLabel}</strong>}
+              {" "}del punto de retiro
+            </span>
+          </div>
+        )}
+
         {/* Ruta */}
         <div className="op-route">
           {/* Pickup */}
           <div className="op-route__point">
             <div className="op-route__dot op-route__dot--a" />
             <div className="op-route__detail">
-              <p className="op-route__label">Retirá en</p>
+              <p className="op-route__label">{esCompras ? "Comprá en" : "Retirá en"}</p>
               <p className="op-route__addr">{pickupAddr}</p>
               {pickupFloor   && <p className="op-route__sub">Piso/Dpto: {pickupFloor}</p>}
               {pickupNotes   && <p className="op-route__sub op-route__sub--note">📝 {pickupNotes}</p>}
@@ -156,6 +177,13 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
                 <p className="op-route__sub op-route__sub--phone">
                   <Phone size={11} weight="fill" /> {pickupPhone}
                 </p>
+              )}
+              {esCompras && productList.length > 0 && (
+                <ul className="op-route__cart">
+                  {productList.map((item, i) => (
+                    <li key={i}>🛒 {item}</li>
+                  ))}
+                </ul>
               )}
             </div>
           </div>

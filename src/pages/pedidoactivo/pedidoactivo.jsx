@@ -332,6 +332,8 @@ function normalizePedido(pedido) {
     requiresCashHandling,
 
     serviceType: normalizeText(service.label || service.type || pedido?.serviceType, "Envío"),
+    serviceTypeId: service.type || "",
+    productList: Array.isArray(pedido?.productList) ? pedido.productList : [],
     size: normalizeText(pedido?.size, "—"),
 
     assignedDriverId:
@@ -831,9 +833,16 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
               <div className="pa-route-point">
                 <div className="pa-route-dot pa-route-dot--a" />
                 <div>
-                  <span>Origen</span>
+                  <span>{data.serviceTypeId === "compras" ? "Lugar de compra" : "Origen"}</span>
                   <strong>{data.pickupAddress}</strong>
                   {data.notesFrom && <p className="pa-notes">📝 {data.notesFrom}</p>}
+                  {data.serviceTypeId === "compras" && data.productList.length > 0 && (
+                    <ul className="pa-cart-list">
+                      {data.productList.map((item, i) => (
+                        <li key={i}>🛒 {item}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 {mapsPickup && (
                   <a href={mapsPickup} target="_blank" rel="noreferrer" className="pa-mini-map-btn">
