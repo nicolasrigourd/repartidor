@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  MapPin, Clock, CurrencyDollar, ArrowDown,
-  X, Check, Warning, Phone, SealPercent, NavigationArrow,
+  CurrencyDollar, MapPinLine, Warning, X, Check,
 } from "@phosphor-icons/react";
 import "./OfertaPantalla.css";
 
@@ -23,24 +22,24 @@ function fmtMin(min, km) {
 // ── Anillo de countdown ────────────────────────────────────
 function TimerRing({ remaining, total }) {
   const pct    = Math.max(0, remaining / total);
-  const radius = 36;
+  const radius = 26;
   const circ   = 2 * Math.PI * radius;
   const color  = pct > 0.4 ? "#F59E0B" : "#EF4444";
   const secs   = Math.ceil(remaining / 1000);
 
   return (
     <div className="op-timer-ring">
-      <svg width="90" height="90" viewBox="0 0 90 90">
-        <circle cx="45" cy="45" r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="6"/>
+      <svg width="64" height="64" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="5"/>
         <circle
-          cx="45" cy="45" r={radius}
+          cx="32" cy="32" r={radius}
           fill="none"
           stroke={color}
-          strokeWidth="6"
+          strokeWidth="5"
           strokeLinecap="round"
           strokeDasharray={circ}
           strokeDashoffset={circ * (1 - pct)}
-          style={{ transform: "rotate(-90deg)", transformOrigin: "45px 45px", transition: "stroke-dashoffset 0.25s linear, stroke 0.3s" }}
+          style={{ transform: "rotate(-90deg)", transformOrigin: "32px 32px", transition: "stroke-dashoffset 0.25s linear, stroke 0.3s" }}
         />
       </svg>
       <span className="op-timer-ring__secs" style={{ color }}>{secs}</span>
@@ -49,6 +48,10 @@ function TimerRing({ remaining, total }) {
 }
 
 // ─────────────────────────────────────────────────────────
+// Pantalla de oferta — a propósito NO muestra direcciones, nombres
+// ni teléfonos del cliente: esa info recién aparece en PedidoActivo,
+// una vez aceptado. Acá el único objetivo es que el repartidor decida
+// rápido, de un vistazo (puede estar manejando), si le conviene o no.
 
 export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRechazar }) {
   const [remaining, setRemaining] = useState(ttlMs);
@@ -70,6 +73,14 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remaining]);
 
+  const ofertaKey = oferta?.orderId || oferta?.id || null;
+
+  useEffect(() => {
+    if (!ofertaKey) return;
+    const audio = new Audio("/sounds/oferta.mp3");
+    audio.play().catch(() => {});
+  }, [ofertaKey]);
+
   if (!oferta) return null;
 
   // ── Todos los campos desde la RAÍZ del offer payload ──
@@ -77,30 +88,16 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
   const precio        = oferta.pricing?.price;
   const surcharge     = oferta.pricing?.surcharge;
   const distanciaKm   = oferta.route?.distanceKm;
-  const durationMin   = oferta.route?.durationMin;
 
-  const driverDistanciaKm = oferta.driverDistanceKm;
+  const driverDistanciaKm    = oferta.driverDistanceKm;
   const driverDistanciaLabel = fmtKm(driverDistanciaKm);
   const driverEtaLabel       = fmtMin(null, driverDistanciaKm);
 
-  const pickupAddr    = oferta.pickup?.address || "Origen";
-  const pickupPhone   = oferta.pickup?.contact?.phone;
-  const pickupNotes   = oferta.pickup?.notes;
-  const pickupFloor   = [oferta.pickup?.floor, oferta.pickup?.apartment].filter(Boolean).join(" ");
+  const paymentMethod = oferta.payment?.method;
+  const requiresMoney = oferta.payment?.requiresMoney === true || oferta.payment?.requiresCashHandling === true;
+  const cashAmount    = oferta.payment?.requiredMoneyAmount || 0;
 
-  const esCompras     = oferta.service?.type === "compras";
-  const productList   = Array.isArray(oferta.productList) ? oferta.productList : [];
-
-  const dropoffAddr   = oferta.dropoff?.address || "Destino";
-  const dropoffName   = oferta.dropoff?.contact?.fullName || oferta.recipient?.name;
-  const dropoffPhone  = oferta.dropoff?.contact?.phone   || oferta.recipient?.phone;
-  const dropoffNotes  = oferta.dropoff?.notes;
-
-  const paymentMethod     = oferta.payment?.method;
-  const requiresMoney     = oferta.payment?.requiresMoney === true || oferta.payment?.requiresCashHandling === true;
-  const cashAmount        = oferta.payment?.requiredMoneyAmount || 0;
-
-  const isMercadoPago = paymentMethod === "mercadopago";
+  const isMercadoPago   = paymentMethod === "mercadopago";
   const totalConRecargo = surcharge > 0 && precio > 0 ? precio + surcharge : null;
 
   return (
@@ -110,7 +107,7 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
         {/* Header — tipo + timer */}
         <div className="op-header">
           <div className="op-header__info">
-            <p className="op-header__eyebrow">Nuevo pedido</p>
+            <p className="op-header__eyebrow">🔔 Nuevo pedido</p>
             <h2 className="op-header__title">{serviceLabel}</h2>
             {isMercadoPago && (
               <span className="op-header__badge op-header__badge--mp">📱 MercadoPago</span>
@@ -119,102 +116,47 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
           <TimerRing remaining={remaining} total={ttlMs} />
         </div>
 
-        {/* Métricas */}
+        {/* Hero — distancia/tiempo al punto de retiro: lo más grande de la pantalla */}
+        <div className="op-hero">
+          <span className="op-hero__label">
+            <MapPinLine size={15} weight="fill" /> Estás a
+          </span>
+          <div className="op-hero__numbers">
+            {driverDistanciaLabel && <strong>{driverDistanciaLabel}</strong>}
+            {driverDistanciaLabel && driverEtaLabel && <span className="op-hero__dot">·</span>}
+            {driverEtaLabel && <strong>{driverEtaLabel}</strong>}
+            {!driverDistanciaLabel && !driverEtaLabel && <strong>—</strong>}
+          </div>
+          <span className="op-hero__sub">del punto de retiro</span>
+        </div>
+
+        {/* Métricas secundarias — sin direcciones, solo ganancia y viaje */}
         <div className="op-metrics">
           <div className="op-metric op-metric--price">
             <CurrencyDollar size={18} weight="fill" />
             <div>
-              <span>Precio</span>
+              <span>Ganancia</span>
               <strong>{precio != null ? fmt$(precio) : "—"}</strong>
               {totalConRecargo && <em>+ {fmt$(surcharge)} recargo</em>}
             </div>
           </div>
           {fmtKm(distanciaKm) && (
             <div className="op-metric">
-              <MapPin size={18} weight="fill" />
+              <MapPinLine size={18} weight="fill" />
               <div>
-                <span>Distancia</span>
+                <span>Viaje total</span>
                 <strong>{fmtKm(distanciaKm)}</strong>
               </div>
             </div>
           )}
-          {fmtMin(durationMin, distanciaKm) && (
-            <div className="op-metric">
-              <Clock size={18} weight="fill" />
-              <div>
-                <span>Tiempo est.</span>
-                <strong>{fmtMin(durationMin, distanciaKm)}</strong>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Distancia/tiempo del repartidor hasta el punto de retiro */}
-        {(driverDistanciaLabel || driverEtaLabel) && (
-          <div className="op-pickup-distance">
-            <NavigationArrow size={16} weight="fill" />
-            <span>
-              Estás a{" "}
-              {driverDistanciaLabel && <strong>{driverDistanciaLabel}</strong>}
-              {driverDistanciaLabel && driverEtaLabel && " · "}
-              {driverEtaLabel && <strong>{driverEtaLabel}</strong>}
-              {" "}del punto de retiro
-            </span>
-          </div>
-        )}
-
-        {/* Ruta */}
-        <div className="op-route">
-          {/* Pickup */}
-          <div className="op-route__point">
-            <div className="op-route__dot op-route__dot--a" />
-            <div className="op-route__detail">
-              <p className="op-route__label">{esCompras ? "Comprá en" : "Retirá en"}</p>
-              <p className="op-route__addr">{pickupAddr}</p>
-              {pickupFloor   && <p className="op-route__sub">Piso/Dpto: {pickupFloor}</p>}
-              {pickupNotes   && <p className="op-route__sub op-route__sub--note">📝 {pickupNotes}</p>}
-              {pickupPhone   && (
-                <p className="op-route__sub op-route__sub--phone">
-                  <Phone size={11} weight="fill" /> {pickupPhone}
-                </p>
-              )}
-              {esCompras && productList.length > 0 && (
-                <ul className="op-route__cart">
-                  {productList.map((item, i) => (
-                    <li key={i}>🛒 {item}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-
-          <div className="op-route__connector">
-            <ArrowDown size={14} weight="bold" color="rgba(255,255,255,0.25)" />
-          </div>
-
-          {/* Dropoff */}
-          <div className="op-route__point">
-            <div className="op-route__dot op-route__dot--b" />
-            <div className="op-route__detail">
-              <p className="op-route__label">Entregá a</p>
-              {dropoffName   && <p className="op-route__name">{dropoffName}</p>}
-              <p className="op-route__addr">{dropoffAddr}</p>
-              {dropoffNotes  && <p className="op-route__sub op-route__sub--note">📝 {dropoffNotes}</p>}
-              {dropoffPhone  && (
-                <p className="op-route__sub op-route__sub--phone">
-                  <Phone size={11} weight="fill" /> {dropoffPhone}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Alerta efectivo */}
+        {/* Alerta efectivo — genérica, sin datos del cliente */}
         {requiresMoney && cashAmount > 0 && (
           <div className="op-cash-alert">
             <Warning size={16} weight="fill" />
             <span>
-              Necesitás <strong>{fmt$(cashAmount)}</strong> en efectivo para retirar el pedido.
+              Necesitás <strong>{fmt$(cashAmount)}</strong> en efectivo para este pedido.
             </span>
           </div>
         )}
@@ -226,12 +168,10 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
             <span>Rechazar</span>
           </button>
           <button type="button" className="op-btn op-btn--accept" onClick={() => onAceptar?.()}>
-            <Check size={22} weight="bold" />
+            <Check size={24} weight="bold" />
             <span>Aceptar</span>
           </button>
         </div>
-
-        <p className="op-note">La oferta expira en {Math.ceil(ttlMs / 1000)} segundos</p>
       </div>
     </div>
   );
