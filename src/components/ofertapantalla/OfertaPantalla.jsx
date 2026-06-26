@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  CurrencyDollar, MapPinLine, Warning, X, Check,
+  CurrencyDollar, MapPinLine, Warning, X, Check, Bell,
 } from "@phosphor-icons/react";
 import "./OfertaPantalla.css";
 
@@ -22,24 +22,24 @@ function fmtMin(min, km) {
 // ── Anillo de countdown ────────────────────────────────────
 function TimerRing({ remaining, total }) {
   const pct    = Math.max(0, remaining / total);
-  const radius = 26;
+  const radius = 32;
   const circ   = 2 * Math.PI * radius;
-  const color  = pct > 0.4 ? "#F59E0B" : "#EF4444";
+  const color  = pct > 0.4 ? "#2DD4BF" : "#FB7185";
   const secs   = Math.ceil(remaining / 1000);
 
   return (
     <div className="op-timer-ring">
-      <svg width="64" height="64" viewBox="0 0 64 64">
-        <circle cx="32" cy="32" r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="5"/>
+      <svg width="76" height="76" viewBox="0 0 76 76">
+        <circle cx="38" cy="38" r={radius} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="6"/>
         <circle
-          cx="32" cy="32" r={radius}
+          cx="38" cy="38" r={radius}
           fill="none"
           stroke={color}
-          strokeWidth="5"
+          strokeWidth="6"
           strokeLinecap="round"
           strokeDasharray={circ}
           strokeDashoffset={circ * (1 - pct)}
-          style={{ transform: "rotate(-90deg)", transformOrigin: "32px 32px", transition: "stroke-dashoffset 0.25s linear, stroke 0.3s" }}
+          style={{ transform: "rotate(-90deg)", transformOrigin: "38px 38px", transition: "stroke-dashoffset 0.25s linear, stroke 0.3s" }}
         />
       </svg>
       <span className="op-timer-ring__secs" style={{ color }}>{secs}</span>
@@ -50,8 +50,9 @@ function TimerRing({ remaining, total }) {
 // ─────────────────────────────────────────────────────────
 // Pantalla de oferta — a propósito NO muestra direcciones, nombres
 // ni teléfonos del cliente: esa info recién aparece en PedidoActivo,
-// una vez aceptado. Acá el único objetivo es que el repartidor decida
-// rápido, de un vistazo (puede estar manejando), si le conviene o no.
+// una vez aceptado. Diseño a pantalla completa, tipografía grande y
+// alto contraste: el repartidor la tiene que poder leer de un vistazo,
+// con sol de frente o con la funda puesta.
 
 export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRechazar }) {
   const [remaining, setRemaining] = useState(ttlMs);
@@ -107,7 +108,9 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
         {/* Header — tipo + timer */}
         <div className="op-header">
           <div className="op-header__info">
-            <p className="op-header__eyebrow">🔔 Nuevo pedido</p>
+            <p className="op-header__eyebrow">
+              <Bell size={14} weight="fill" className="op-header__bell" /> Nuevo pedido
+            </p>
             <h2 className="op-header__title">{serviceLabel}</h2>
             {isMercadoPago && (
               <span className="op-header__badge op-header__badge--mp">📱 MercadoPago</span>
@@ -119,7 +122,7 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
         {/* Hero — distancia/tiempo al punto de retiro: lo más grande de la pantalla */}
         <div className="op-hero">
           <span className="op-hero__label">
-            <MapPinLine size={15} weight="fill" /> Estás a
+            <MapPinLine size={18} weight="fill" /> ESTÁS A
           </span>
           <div className="op-hero__numbers">
             {driverDistanciaLabel && <strong>{driverDistanciaLabel}</strong>}
@@ -131,22 +134,20 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
         </div>
 
         {/* Métricas secundarias — sin direcciones, solo ganancia y viaje */}
-        <div className="op-metrics">
-          <div className="op-metric op-metric--price">
-            <CurrencyDollar size={18} weight="fill" />
-            <div>
-              <span>Ganancia</span>
-              <strong>{precio != null ? fmt$(precio) : "—"}</strong>
-              {totalConRecargo && <em>+ {fmt$(surcharge)} recargo</em>}
-            </div>
+        <div className="op-stats">
+          <div className="op-stat op-stat--turquoise">
+            <span className="op-stat__label">
+              <CurrencyDollar size={16} weight="fill" /> Ganancia
+            </span>
+            <strong className="op-stat__value">{precio != null ? fmt$(precio) : "—"}</strong>
+            {totalConRecargo && <em className="op-stat__extra">+ {fmt$(surcharge)} recargo</em>}
           </div>
           {fmtKm(distanciaKm) && (
-            <div className="op-metric">
-              <MapPinLine size={18} weight="fill" />
-              <div>
-                <span>Viaje total</span>
-                <strong>{fmtKm(distanciaKm)}</strong>
-              </div>
+            <div className="op-stat op-stat--lilac">
+              <span className="op-stat__label">
+                <MapPinLine size={16} weight="fill" /> Viaje total
+              </span>
+              <strong className="op-stat__value">{fmtKm(distanciaKm)}</strong>
             </div>
           )}
         </div>
@@ -154,7 +155,7 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
         {/* Alerta efectivo — genérica, sin datos del cliente */}
         {requiresMoney && cashAmount > 0 && (
           <div className="op-cash-alert">
-            <Warning size={16} weight="fill" />
+            <Warning size={20} weight="fill" />
             <span>
               Necesitás <strong>{fmt$(cashAmount)}</strong> en efectivo para este pedido.
             </span>
@@ -168,7 +169,7 @@ export default function OfertaPantalla({ oferta, ttlMs = 20000, onAceptar, onRec
             <span>Rechazar</span>
           </button>
           <button type="button" className="op-btn op-btn--accept" onClick={() => onAceptar?.()}>
-            <Check size={24} weight="bold" />
+            <Check size={26} weight="bold" />
             <span>Aceptar</span>
           </button>
         </div>
