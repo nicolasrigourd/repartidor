@@ -13,7 +13,7 @@ import {
 } from "@phosphor-icons/react";
 
 import { db, rtdb } from "../../firebaseconfig";
-import MapaNavegacion from "../../components/mapanavegacion/MapaNavegacion";
+import { openNativeNavigation } from "../../services/nativeNavigation";
 import "./pedidoactivo.css";
 
 function haversineM(a, b) {
@@ -45,13 +45,14 @@ const STEP_CONFIG = {
     badge: "Pedido asignado",
     title: "Pedido listo para comenzar",
     subtitle: "Revisá origen, destino, notas e importe antes de iniciar el recorrido.",
-    actionLabel: "Comenzar",
+    actionLabel: "Listo, comprendido",
     nextStep: "started_pickup",
     nextStatus: "started_pickup",
     routeTarget: "pickup",
     openMapOnAdvance: true,
+    collapseOnAdvance: true,
     buttonVariant: "start",
-    helperText: "Al comenzar se abrirá la ruta al punto de retiro.",
+    helperText: "Al confirmar se abrirá la ruta al punto de retiro.",
     deliveryTimeField: "startedPickupAt",
   },
 
@@ -177,24 +178,6 @@ function buildGoogleMapsDirectionsUrl(from, to) {
   )}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
 }
 
-function buildGoogleMapsDestinationUrl(to, fallbackAddress = "") {
-  if (hasCoords(to)) {
-    const destination = `${to.lat},${to.lng}`;
-
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-      destination
-    )}&travelmode=driving`;
-  }
-
-  if (fallbackAddress && fallbackAddress !== "—") {
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-      fallbackAddress
-    )}&travelmode=driving`;
-  }
-
-  return null;
-}
-
 function formatMoney(value) {
   if (value == null || value === "") return null;
 
@@ -285,6 +268,12 @@ function normalizePedido(pedido) {
     pedido?.customerPhone ||
     "—";
 
+  const contactFromName =
+    pickup?.contact?.fullName ||
+    pedido?.customer?.name ||
+    pedido?.customerName ||
+    "—";
+
   const paymentMethod = payment.method || pedido?.paymentMethod || "cash";
 
   const requiresCashHandling =
@@ -325,6 +314,7 @@ function normalizePedido(pedido) {
     recipientName: normalizeText(recipientName),
     recipientPhone: normalizeText(recipientPhone),
     contactFrom: normalizeText(contactFrom),
+    contactFromName: normalizeText(contactFromName),
 
     price,
     km,
@@ -353,8 +343,11 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   const [loading, setLoading] = useState(true);
   const [updatingStep, setUpdatingStep] = useState(false);
   const [error, setError] = useState("");
-  const [driverCoords, setDriverCoords] = useState(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Arranca expandido: el repartidor tiene que leer la comanda completa
+  // antes de salir. Se colapsa solo cuando confirma un paso marcado
+  // como collapseOnAdvance (ver STEP_CONFIG), dejando a la vista el
+  // destino del próximo tramo en grande.
+  const [isExpanded, setIsExpanded] = useState(true);
 
   const lastGpsWriteRef = useRef(null);
   const gpsHeartbeatRef = useRef(null);
@@ -409,7 +402,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     return () => unsubscribe();
   }, [orderId]);
 
-  // GPS en tiempo real para el mapa de navegación — throttle por distancia + heartbeat
+  // GPS en tiempo real hacia driversLive/RTDB — throttle por distancia + heartbeat
   useEffect(() => {
     if (!navigator.geolocation) return;
 
@@ -434,7 +427,6 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setDriverCoords(coords); // siempre: mapa local fluido
 
         const moved = haversineM(lastGpsWriteRef.current, coords);
         if (moved >= getGpsThresholdM(routeDistKmRef.current)) {
@@ -489,34 +481,16 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     return buildGoogleMapsDirectionsUrl(data.pickupCoords, data.dropoffCoords);
   }, [data]);
 
-  const getStepNavigationUrl = useCallback(
-    (routeTarget) => {
-      if (!data) return null;
-
-      if (routeTarget === "dropoff") {
-        return (
-          buildGoogleMapsDestinationUrl(data.dropoffCoords, data.dropoffAddress) ||
-          mapsDropoff
-        );
-      }
-
-      return (
-        buildGoogleMapsDestinationUrl(data.pickupCoords, data.pickupAddress) ||
-        mapsPickup
-      );
-    },
-    [data, mapsDropoff, mapsPickup]
-  );
-
   const openMapForStep = useCallback(
     (routeTarget) => {
-      const url = getStepNavigationUrl(routeTarget);
+      if (!data) return;
 
-      if (!url) return;
+      const coords  = routeTarget === "dropoff" ? data.dropoffCoords  : data.pickupCoords;
+      const address = routeTarget === "dropoff" ? data.dropoffAddress : data.pickupAddress;
 
-      window.open(url, "_blank", "noopener,noreferrer");
+      openNativeNavigation({ lat: coords?.lat, lng: coords?.lng, address });
     },
-    [getStepNavigationUrl]
+    [data]
   );
 
   const updateActiveOrderMirror = useCallback(
@@ -658,6 +632,10 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
           openMapForStep(currentConfig.routeTarget);
         }, 250);
       }
+
+      if (currentConfig.collapseOnAdvance) {
+        setIsExpanded(false);
+      }
     } catch (err) {
       console.error("❌ Error avanzando paso del pedido:", err);
       setError("No pudimos actualizar el estado del pedido. Intentá nuevamente.");
@@ -681,9 +659,11 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     ? (data?.pickupCoords?.lat  ? data.pickupCoords  : null)
     : (data?.dropoffCoords?.lat ? data.dropoffCoords : null);
   const currentAddress = isGoingToPickup ? data?.pickupAddress : data?.dropoffAddress;
-  const mapsNavUrl     = isGoingToPickup
-    ? (getStepNavigationUrl?.("pickup") || mapsPickup)
-    : (getStepNavigationUrl?.("dropoff") || mapsDropoff);
+  const currentContactName  = isGoingToPickup ? data?.contactFromName : data?.recipientName;
+  const currentContactPhone = isGoingToPickup ? data?.contactFrom     : data?.recipientPhone;
+  const canNavigate = Boolean(
+    currentDestination?.lat != null || (currentAddress && currentAddress !== "—")
+  );
 
   // ── Progreso de pasos ──────────────────────────────────────
   const STEP_ORDER = ["go_to_pickup", "started_pickup", "arrived_pickup", "go_to_dropoff", "arrived_dropoff"];
@@ -720,14 +700,6 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
   return (
     <div className="pa-root">
-
-      {/* ── MAPA — fondo completo ────────────────────────── */}
-      <MapaNavegacion
-        driverCoords={driverCoords}
-        destination={currentDestination}
-        stepType={isGoingToPickup ? "pickup" : "dropoff"}
-        followDriver
-      />
 
       {/* ── TOP HUD — progreso + volver ─────────────────── */}
       <div className="pa-top-hud">
@@ -770,17 +742,36 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
           <div className="pa-step-badge">{stepConfig.badge}</div>
           <p className="pa-dest-address">{currentAddress || "—"}</p>
 
+          {(currentContactName !== "—" || currentContactPhone !== "—") && (
+            <div className="pa-dest-contact">
+              <span className="pa-dest-contact__name">{currentContactName}</span>
+              {currentContactPhone !== "—" && (
+                <button
+                  className="pa-dest-contact__call"
+                  onClick={() => callPhone(currentContactPhone)}
+                >
+                  <Phone size={13} weight="fill" /> {currentContactPhone}
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="pa-panel-ctas">
-            {mapsNavUrl && (
-              <a
+            {canNavigate && (
+              <button
+                type="button"
                 className="pa-maps-btn"
-                href={mapsNavUrl}
-                target="_blank"
-                rel="noreferrer"
+                onClick={() =>
+                  openNativeNavigation({
+                    lat: currentDestination?.lat,
+                    lng: currentDestination?.lng,
+                    address: currentAddress,
+                  })
+                }
               >
                 <NavigationArrow size={16} weight="fill" />
                 Navegar
-              </a>
+              </button>
             )}
             <button
               className={`pa-action-btn pa-action-btn--${stepConfig.buttonVariant}`}
