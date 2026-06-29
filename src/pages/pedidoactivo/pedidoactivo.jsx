@@ -9,7 +9,7 @@ import {
 import { ref, update, remove } from "firebase/database";
 import {
   ArrowLeft, MapPin, Phone, CaretDown, CaretUp,
-  Warning, NavigationArrow,
+  Warning, NavigationArrow, CurrencyDollar,
 } from "@phosphor-icons/react";
 
 import { db, rtdb } from "../../firebaseconfig";
@@ -694,6 +694,17 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   const STEP_ORDER = ["go_to_pickup", "started_pickup", "arrived_pickup", "go_to_dropoff", "arrived_dropoff"];
   const stepIndex  = STEP_ORDER.indexOf(step);
 
+  // Los teléfonos se habilitan recién al llegar a cada parada — evita
+  // llamadas o mensajes del repartidor al cliente antes de estar ahí.
+  const pickupPhoneUnlocked  = step === "delivered" || stepIndex >= STEP_ORDER.indexOf("arrived_pickup");
+  const dropoffPhoneUnlocked = step === "delivered" || stepIndex >= STEP_ORDER.indexOf("arrived_dropoff");
+  const currentPhoneUnlocked = isGoingToPickup ? pickupPhoneUnlocked : dropoffPhoneUnlocked;
+
+  // "Debés cobrar" — solo en el último tramo antes de finalizar, y solo
+  // si el pago es en efectivo (con MercadoPago no hay nada que cobrar).
+  const showCollectCashBanner =
+    step === "arrived_dropoff" && data.paymentMethod !== "mercadopago" && Number(data.price) > 0;
+
   // ── Loading / Error ────────────────────────────────────────
   if (loading) {
     return (
@@ -776,10 +787,13 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
               {(currentContactName !== "—" || currentContactPhone !== "—") && (
                 <div className="pa-stop__contact">
                   <span className="pa-stop__contact-name">{currentContactName}</span>
-                  {currentContactPhone !== "—" && (
+                  {currentContactPhone !== "—" && currentPhoneUnlocked && (
                     <button className="pa-stop__call" onClick={() => callPhone(currentContactPhone)}>
                       <Phone size={13} weight="fill" /> {currentContactPhone}
                     </button>
+                  )}
+                  {currentContactPhone !== "—" && !currentPhoneUnlocked && (
+                    <span className="pa-stop__call-locked">📞 Disponible al llegar</span>
                   )}
                 </div>
               )}
@@ -813,10 +827,13 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
                 {(data.contactFromName !== "—" || data.contactFrom !== "—") && (
                   <div className="pa-stop__contact">
                     <span className="pa-stop__contact-name">{data.contactFromName}</span>
-                    {data.contactFrom !== "—" && (
+                    {data.contactFrom !== "—" && pickupPhoneUnlocked && (
                       <button className="pa-stop__call" onClick={() => callPhone(data.contactFrom)}>
                         <Phone size={13} weight="fill" /> {data.contactFrom}
                       </button>
+                    )}
+                    {data.contactFrom !== "—" && !pickupPhoneUnlocked && (
+                      <span className="pa-stop__call-locked">📞 Disponible al llegar</span>
                     )}
                   </div>
                 )}
@@ -838,10 +855,13 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
                 {(data.recipientName !== "—" || data.recipientPhone !== "—") && (
                   <div className="pa-stop__contact">
                     <span className="pa-stop__contact-name">{data.recipientName}</span>
-                    {data.recipientPhone !== "—" && (
+                    {data.recipientPhone !== "—" && dropoffPhoneUnlocked && (
                       <button className="pa-stop__call" onClick={() => callPhone(data.recipientPhone)}>
                         <Phone size={13} weight="fill" /> {data.recipientPhone}
                       </button>
+                    )}
+                    {data.recipientPhone !== "—" && !dropoffPhoneUnlocked && (
+                      <span className="pa-stop__call-locked">📞 Disponible al llegar</span>
                     )}
                   </div>
                 )}
@@ -872,6 +892,14 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
                   </strong>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Aviso de cobro — último tramo antes de finalizar, solo si es efectivo */}
+          {showCollectCashBanner && (
+            <div className="pa-collect-alert">
+              <CurrencyDollar size={18} weight="fill" />
+              <span>Debés cobrar <strong>{priceLabel}</strong></span>
             </div>
           )}
 

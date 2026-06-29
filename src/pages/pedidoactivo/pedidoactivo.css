@@ -289,6 +289,14 @@
 }
 .pa-stop__call:active { background: rgba(45,212,191,0.28); }
 
+.pa-stop__call-locked {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .pa-cart-list    { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .pa-cart-list li { font-size: 13px; color: rgba(255,255,255,0.85); line-height: 1.4; word-break: break-word; }
 
@@ -311,6 +319,20 @@
   font-size: 14px;
   font-weight: 800;
 }
+
+/* ── Aviso "Debés cobrar" — último tramo antes de finalizar ── */
+.pa-collect-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #2DD4BF;
+  color: #042F2E;
+  font-size: 15px;
+  font-weight: 700;
+}
+.pa-collect-alert strong { font-weight: 900; }
 
 /* ── Resumen — precio, distancia, pago ────────────────────── */
 .pa-summary {
