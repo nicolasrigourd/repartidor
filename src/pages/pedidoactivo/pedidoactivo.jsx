@@ -9,7 +9,7 @@ import {
 import { ref, update, remove } from "firebase/database";
 import {
   ArrowLeft, MapPin, Phone, CaretDown, CaretUp,
-  Warning, CurrencyDollar, NavigationArrow,
+  Warning, NavigationArrow,
 } from "@phosphor-icons/react";
 
 import { db, rtdb } from "../../firebaseconfig";
@@ -199,6 +199,13 @@ function callPhone(number) {
   window.location.href = `tel:${cleaned}`;
 }
 
+function formatFloorInfo(floor, apartment) {
+  const parts = [];
+  if (floor) parts.push(`Piso ${floor}`);
+  if (apartment) parts.push(`Depto ${apartment}`);
+  return parts.join(", ");
+}
+
 function normalizePedido(pedido) {
   if (!pedido) return null;
 
@@ -308,6 +315,10 @@ function normalizePedido(pedido) {
     dropoffAddress: normalizeText(dropoffAddress),
     pickupCoords,
     dropoffCoords,
+    pickupFloor: normalizeText(pickup.floor, ""),
+    pickupApartment: normalizeText(pickup.apartment, ""),
+    dropoffFloor: normalizeText(dropoff.floor, ""),
+    dropoffApartment: normalizeText(dropoff.apartment, ""),
     notesFrom: normalizeText(notesFrom, ""),
     notesTo: normalizeText(notesTo, ""),
 
@@ -659,11 +670,19 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     ? (data?.pickupCoords?.lat  ? data.pickupCoords  : null)
     : (data?.dropoffCoords?.lat ? data.dropoffCoords : null);
   const currentAddress = isGoingToPickup ? data?.pickupAddress : data?.dropoffAddress;
+  const currentFloorInfo = isGoingToPickup
+    ? formatFloorInfo(data?.pickupFloor, data?.pickupApartment)
+    : formatFloorInfo(data?.dropoffFloor, data?.dropoffApartment);
+  const currentNotes = isGoingToPickup ? data?.notesFrom : data?.notesTo;
   const currentContactName  = isGoingToPickup ? data?.contactFromName : data?.recipientName;
   const currentContactPhone = isGoingToPickup ? data?.contactFrom     : data?.recipientPhone;
+  const currentStopLabel = isGoingToPickup ? "Retirar de" : "Llevar a";
   const canNavigate = Boolean(
     currentDestination?.lat != null || (currentAddress && currentAddress !== "—")
   );
+
+  const pickupFloorInfo  = formatFloorInfo(data?.pickupFloor, data?.pickupApartment);
+  const dropoffFloorInfo = formatFloorInfo(data?.dropoffFloor, data?.dropoffApartment);
 
   // ── Progreso de pasos ──────────────────────────────────────
   const STEP_ORDER = ["go_to_pickup", "started_pickup", "arrived_pickup", "go_to_dropoff", "arrived_dropoff"];
@@ -737,165 +756,155 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
           <div className="pa-panel-handle" />
         </button>
 
-        {/* Sección siempre visible */}
-        <div className="pa-panel-top">
+        <div className="pa-panel-scroll">
           <div className="pa-step-badge">{stepConfig.badge}</div>
-          <p className="pa-dest-address">{currentAddress || "—"}</p>
 
-          {(currentContactName !== "—" || currentContactPhone !== "—") && (
-            <div className="pa-dest-contact">
-              <span className="pa-dest-contact__name">{currentContactName}</span>
-              {currentContactPhone !== "—" && (
-                <button
-                  className="pa-dest-contact__call"
-                  onClick={() => callPhone(currentContactPhone)}
-                >
-                  <Phone size={13} weight="fill" /> {currentContactPhone}
-                </button>
+          {!isExpanded ? (
+            /* ── Vista colapsada — foco en la parada actual ── */
+            <div className="pa-stop pa-stop--focused">
+              <span className="pa-stop__label">{currentStopLabel}</span>
+              <p className="pa-stop__address">{currentAddress || "—"}</p>
+              {currentFloorInfo && <p className="pa-stop__floor">{currentFloorInfo}</p>}
+              {currentNotes && <p className="pa-stop__notes">📝 {currentNotes}</p>}
+
+              {(currentContactName !== "—" || currentContactPhone !== "—") && (
+                <div className="pa-stop__contact">
+                  <span className="pa-stop__contact-name">{currentContactName}</span>
+                  {currentContactPhone !== "—" && (
+                    <button className="pa-stop__call" onClick={() => callPhone(currentContactPhone)}>
+                      <Phone size={13} weight="fill" /> {currentContactPhone}
+                    </button>
+                  )}
+                </div>
               )}
+            </div>
+          ) : (
+            /* ── Vista expandida — comanda completa ── */
+            <div className="pa-comanda">
+
+              {/* RETIRAR DE */}
+              <div className="pa-stop pa-stop--pickup">
+                <span className="pa-stop__label">
+                  {data.serviceTypeId === "compras" ? "Retirar / comprar en" : "Retirar de"}
+                </span>
+                <div className="pa-stop__address-row">
+                  <p className="pa-stop__address">{data.pickupAddress}</p>
+                  {mapsPickup && (
+                    <a href={mapsPickup} target="_blank" rel="noreferrer" className="pa-mini-map-btn">
+                      <MapPin size={14} weight="fill" />
+                    </a>
+                  )}
+                </div>
+                {pickupFloorInfo && <p className="pa-stop__floor">{pickupFloorInfo}</p>}
+                {data.notesFrom && <p className="pa-stop__notes">📝 {data.notesFrom}</p>}
+                {data.serviceTypeId === "compras" && data.productList.length > 0 && (
+                  <ul className="pa-cart-list">
+                    {data.productList.map((item, i) => (
+                      <li key={i}>🛒 {item}</li>
+                    ))}
+                  </ul>
+                )}
+                {(data.contactFromName !== "—" || data.contactFrom !== "—") && (
+                  <div className="pa-stop__contact">
+                    <span className="pa-stop__contact-name">{data.contactFromName}</span>
+                    {data.contactFrom !== "—" && (
+                      <button className="pa-stop__call" onClick={() => callPhone(data.contactFrom)}>
+                        <Phone size={13} weight="fill" /> {data.contactFrom}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* LLEVAR A */}
+              <div className="pa-stop pa-stop--dropoff">
+                <span className="pa-stop__label">Llevar a</span>
+                <div className="pa-stop__address-row">
+                  <p className="pa-stop__address">{data.dropoffAddress}</p>
+                  {mapsDropoff && (
+                    <a href={mapsDropoff} target="_blank" rel="noreferrer" className="pa-mini-map-btn">
+                      <MapPin size={14} weight="fill" />
+                    </a>
+                  )}
+                </div>
+                {dropoffFloorInfo && <p className="pa-stop__floor">{dropoffFloorInfo}</p>}
+                {data.notesTo && <p className="pa-stop__notes">📝 {data.notesTo}</p>}
+                {(data.recipientName !== "—" || data.recipientPhone !== "—") && (
+                  <div className="pa-stop__contact">
+                    <span className="pa-stop__contact-name">{data.recipientName}</span>
+                    {data.recipientPhone !== "—" && (
+                      <button className="pa-stop__call" onClick={() => callPhone(data.recipientPhone)}>
+                        <Phone size={13} weight="fill" /> {data.recipientPhone}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Alerta efectivo */}
+              {data.requiresCashHandling && (
+                <div className="pa-cash-alert">
+                  <Warning size={15} weight="fill" />
+                  <span>Pedido con manejo de dinero — verificá el importe</span>
+                </div>
+              )}
+
+              {/* Resumen — precio, distancia y pago, justo antes de los botones */}
+              <div className="pa-summary">
+                <div className="pa-summary-item">
+                  <span>Importe</span>
+                  <strong>{priceLabel || "—"}</strong>
+                </div>
+                <div className="pa-summary-item">
+                  <span>Distancia</span>
+                  <strong>{data.km != null ? `${Number(data.km).toFixed(1)} km` : "—"}</strong>
+                </div>
+                <div className="pa-summary-item">
+                  <span>Pago</span>
+                  <strong>
+                    {data.paymentMethod === "mercadopago" ? "MercadoPago" : "Efectivo"}
+                  </strong>
+                </div>
+              </div>
             </div>
           )}
 
-          <div className="pa-panel-ctas">
-            {canNavigate && (
-              <button
-                type="button"
-                className="pa-maps-btn"
-                onClick={() =>
-                  openNativeNavigation({
-                    lat: currentDestination?.lat,
-                    lng: currentDestination?.lng,
-                    address: currentAddress,
-                  })
-                }
-              >
-                <NavigationArrow size={16} weight="fill" />
-                Navegar
-              </button>
-            )}
-            <button
-              className={`pa-action-btn pa-action-btn--${stepConfig.buttonVariant}`}
-              onClick={handleAdvanceStep}
-              disabled={updatingStep}
-            >
-              {updatingStep ? "Actualizando…" : stepConfig.actionLabel}
-            </button>
-          </div>
+          {/* Toggle expandir */}
+          <button className="pa-expand-toggle" onClick={() => setIsExpanded(v => !v)}>
+            {isExpanded
+              ? <><CaretDown size={14} weight="bold" /> Vista enfocada</>
+              : <><CaretUp   size={14} weight="bold" /> Ver comanda completa</>}
+          </button>
 
           {error && <div className="pa-inline-error">{error}</div>}
         </div>
 
-        {/* Detalles expandibles */}
-        {isExpanded && (
-          <div className="pa-details">
-
-            {/* Alerta efectivo */}
-            {data.requiresCashHandling && (
-              <div className="pa-cash-alert">
-                <Warning size={15} weight="fill" />
-                <span>Pedido con manejo de dinero — verificá el importe</span>
-              </div>
-            )}
-
-            {/* Resumen financiero */}
-            <div className="pa-summary">
-              <div className="pa-summary-item">
-                <span>Importe</span>
-                <strong>{priceLabel || "—"}</strong>
-              </div>
-              <div className="pa-summary-item">
-                <span>Distancia</span>
-                <strong>{data.km != null ? `${Number(data.km).toFixed(1)} km` : "—"}</strong>
-              </div>
-              <div className="pa-summary-item">
-                <span>Pago</span>
-                <strong>
-                  {data.paymentMethod === "mercadopago" ? "MercadoPago" : "Efectivo"}
-                </strong>
-              </div>
-              <div className="pa-summary-item">
-                <span>Servicio</span>
-                <strong>{data.serviceType}</strong>
-              </div>
-            </div>
-
-            {/* Ruta */}
-            <div className="pa-route">
-              <div className="pa-route-point">
-                <div className="pa-route-dot pa-route-dot--a" />
-                <div>
-                  <span>{data.serviceTypeId === "compras" ? "Lugar de compra" : "Origen"}</span>
-                  <strong>{data.pickupAddress}</strong>
-                  {data.notesFrom && <p className="pa-notes">📝 {data.notesFrom}</p>}
-                  {data.serviceTypeId === "compras" && data.productList.length > 0 && (
-                    <ul className="pa-cart-list">
-                      {data.productList.map((item, i) => (
-                        <li key={i}>🛒 {item}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-                {mapsPickup && (
-                  <a href={mapsPickup} target="_blank" rel="noreferrer" className="pa-mini-map-btn">
-                    <MapPin size={14} weight="fill" />
-                  </a>
-                )}
-              </div>
-              <div className="pa-route-line" />
-              <div className="pa-route-point">
-                <div className="pa-route-dot pa-route-dot--b" />
-                <div>
-                  <span>Destino</span>
-                  <strong>{data.dropoffAddress}</strong>
-                  {data.notesTo && <p className="pa-notes">📝 {data.notesTo}</p>}
-                </div>
-                {mapsDropoff && (
-                  <a href={mapsDropoff} target="_blank" rel="noreferrer" className="pa-mini-map-btn">
-                    <MapPin size={14} weight="fill" />
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {/* Contactos */}
-            <div className="pa-contacts">
-              <div className="pa-contact">
-                <div>
-                  <span>Destinatario</span>
-                  <strong>{data.recipientName}</strong>
-                </div>
-                <button
-                  className="pa-call-btn"
-                  onClick={() => callPhone(data.recipientPhone)}
-                  disabled={!data.recipientPhone || data.recipientPhone === "—"}
-                >
-                  <Phone size={16} weight="fill" />
-                  {data.recipientPhone !== "—" ? data.recipientPhone : "Sin teléfono"}
-                </button>
-              </div>
-              {data.contactFrom && data.contactFrom !== "—" && (
-                <div className="pa-contact">
-                  <div>
-                    <span>Origen</span>
-                    <strong>{data.contactFrom}</strong>
-                  </div>
-                  <button className="pa-call-btn" onClick={() => callPhone(data.contactFrom)}>
-                    <Phone size={16} weight="fill" />
-                    Llamar
-                  </button>
-                </div>
-              )}
-            </div>
-
-          </div>
-        )}
-
-        {/* Toggle expandir */}
-        <button className="pa-expand-toggle" onClick={() => setIsExpanded(v => !v)}>
-          {isExpanded
-            ? <><CaretDown size={14} weight="bold" /> Ocultar detalles</>
-            : <><CaretUp   size={14} weight="bold" /> Ver detalles del pedido</>}
-        </button>
+        {/* Botones de acción — siempre fijos al fondo */}
+        <div className="pa-panel-ctas">
+          {canNavigate && (
+            <button
+              type="button"
+              className="pa-maps-btn"
+              onClick={() =>
+                openNativeNavigation({
+                  lat: currentDestination?.lat,
+                  lng: currentDestination?.lng,
+                  address: currentAddress,
+                })
+              }
+            >
+              <NavigationArrow size={16} weight="fill" />
+              Navegar
+            </button>
+          )}
+          <button
+            className={`pa-action-btn ${stepConfig.buttonVariant === "done" ? "pa-action-btn--done" : ""}`}
+            onClick={handleAdvanceStep}
+            disabled={updatingStep}
+          >
+            {updatingStep ? "Actualizando…" : stepConfig.actionLabel}
+          </button>
+        </div>
 
       </div>
     </div>
