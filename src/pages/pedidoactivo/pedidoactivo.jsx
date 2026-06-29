@@ -199,11 +199,17 @@ function callPhone(number) {
   window.location.href = `tel:${cleaned}`;
 }
 
+// El campo "floor" no siempre es un número de piso: Nodo Operador lo separa
+// en dos campos cortos (floor="2", apartment="B"), pero la app Cliente usa
+// un solo campo de texto libre ("local 4", "casa del fondo") y deja
+// apartment vacío. Por eso "Piso" solo se antepone cuando hay apartment
+// (ahí sabemos que floor es realmente un número) — si no, se muestra tal
+// cual lo escribió el cliente, ya autodescriptivo.
 function formatFloorInfo(floor, apartment) {
-  const parts = [];
-  if (floor) parts.push(`Piso ${floor}`);
-  if (apartment) parts.push(`Depto ${apartment}`);
-  return parts.join(", ");
+  if (floor && apartment) return `Piso ${floor}, Depto ${apartment}`;
+  if (floor) return floor;
+  if (apartment) return `Depto ${apartment}`;
+  return "";
 }
 
 function normalizePedido(pedido) {
