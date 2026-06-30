@@ -4,21 +4,91 @@
   gap: 0;
 }
 
-/* Hero */
-.bp-hero {
+/* Efectivo / En cuenta — cards separadas, tap para editar */
+.bp-money-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 16px;
+  border-bottom: 1px solid rgba(240,246,252,0.07);
+}
+
+.bp-money-card {
+  border-radius: 16px;
+  overflow: hidden;
+}
+.bp-money-card--green { background: rgba(34,197,94,0.1);  border: 1.5px solid rgba(34,197,94,0.3); }
+.bp-money-card--blue  { background: rgba(56,189,248,0.1); border: 1.5px solid rgba(56,189,248,0.3); }
+
+.bp-money-card__tap {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 4px;
-  padding: 28px 24px 24px;
-  background: linear-gradient(160deg, rgba(34,197,94,0.1) 0%, rgba(15,17,23,0) 60%);
-  border-bottom: 1px solid rgba(240,246,252,0.07);
+  cursor: pointer;
   text-align: center;
 }
-.bp-hero__label  { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(240,246,252,0.4); margin-top: 6px; }
-.bp-hero__amount { font-size: 36px; font-weight: 900; color: #f0f6fc; letter-spacing: -0.04em; line-height: 1.1; }
-.bp-hero__sub    { font-size: 13px; color: rgba(240,246,252,0.4); }
+.bp-money-card--green .bp-money-card__tap svg { color: #4ade80; }
+.bp-money-card--blue  .bp-money-card__tap svg { color: #38bdf8; }
+
+.bp-money-card__label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: rgba(240,246,252,0.5);
+  margin-top: 2px;
+}
+.bp-money-card__amount {
+  font-size: 22px;
+  font-weight: 900;
+  color: #f0f6fc;
+  letter-spacing: -0.03em;
+}
+.bp-money-card__edit-hint {
+  font-size: 10px;
+  color: rgba(240,246,252,0.3);
+}
+
+.bp-money-card__edit {
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bp-money-card__edit input {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(240,246,252,0.18);
+  background: rgba(240,246,252,0.06);
+  color: #f0f6fc;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+.bp-money-card__actions {
+  display: flex;
+  gap: 6px;
+}
+.bp-money-card__save,
+.bp-money-card__cancel {
+  flex: 1;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.bp-money-card--green .bp-money-card__save { background: #22c55e; color: #06230f; }
+.bp-money-card--blue  .bp-money-card__save { background: #38bdf8; color: #042230; }
+.bp-money-card__save:disabled { opacity: 0.6; cursor: not-allowed; }
+.bp-money-card__cancel { background: rgba(240,246,252,0.1); color: rgba(240,246,252,0.7); }
 
 /* Alerts */
 .bp-alerts {

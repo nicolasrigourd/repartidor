@@ -1419,7 +1419,7 @@ function Home({ repartidorId, user, onLogout }) {
         {renderHeader()}
         <div className="driver-page-scroll">
           {activeTab === "pedidos"   && <PedidosPage />}
-          {activeTab === "billetera" && <BilleteraPage ficha={ficha} />}
+          {activeTab === "billetera" && <BilleteraPage ficha={ficha} repartidorId={repartidorId} />}
           {activeTab === "perfil"    && (
             <PerfilPage
               ficha={ficha}

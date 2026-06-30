@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { repartidorDb } from "../../db/repartidorDb";
-import { Warning, TrendUp, Wallet } from "@phosphor-icons/react";
+import { Warning, TrendUp, Wallet, CreditCard } from "@phosphor-icons/react";
+import { updateCashOnHand } from "../../services/perfilService";
 import "./BilleteraPage.css";
 
 function fmt$(v) {
@@ -9,7 +11,39 @@ function fmt$(v) {
   }).format(Number(v) || 0);
 }
 
-export default function BilleteraPage({ ficha }) {
+function MoneyCard({ variant, icon, label, value, editing, formValue, saving, onStartEdit, onChangeForm, onSave, onCancel }) {
+  return (
+    <div className={`bp-money-card bp-money-card--${variant}`}>
+      {!editing ? (
+        <button className="bp-money-card__tap" onClick={onStartEdit}>
+          {icon}
+          <span className="bp-money-card__label">{label}</span>
+          <strong className="bp-money-card__amount">{fmt$(value)}</strong>
+          <span className="bp-money-card__edit-hint">Tocar para editar</span>
+        </button>
+      ) : (
+        <div className="bp-money-card__edit">
+          <span className="bp-money-card__label">{label}</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            autoFocus
+            value={formValue}
+            onChange={(e) => onChangeForm(e.target.value)}
+          />
+          <div className="bp-money-card__actions">
+            <button className="bp-money-card__cancel" onClick={onCancel} disabled={saving}>Cancelar</button>
+            <button className="bp-money-card__save" onClick={onSave} disabled={saving}>
+              {saving ? "..." : "Guardar"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function BilleteraPage({ ficha, repartidorId }) {
   const today     = new Date().toISOString().slice(0, 10);
   const thisMonth = today.slice(0, 7);
 
@@ -20,16 +54,61 @@ export default function BilleteraPage({ ficha }) {
   const hayDeuda = (ficha?.deudaActual || 0) > 0;
   const hayMulta = (ficha?.multaActual || 0) > 0;
 
+  // ── Efectivo / En cuenta — tap para editar, cada card independiente ──
+  const [editingCash, setEditingCash] = useState(null); // "hand" | "account" | null
+  const [cashForm, setCashForm] = useState("");
+  const [savingCash, setSavingCash] = useState(false);
+
+  const startEdit = (field, currentValue) => {
+    setCashForm(String(currentValue ?? 0));
+    setEditingCash(field);
+  };
+
+  const handleSave = async () => {
+    setSavingCash(true);
+    try {
+      await updateCashOnHand(repartidorId, {
+        cashOnHand:    editingCash === "hand"    ? cashForm : ficha?.dineroDisponible,
+        cashInAccount: editingCash === "account" ? cashForm : ficha?.dineroEnCuenta,
+      });
+      setEditingCash(null);
+    } catch (err) {
+      console.error("Error guardando dinero:", err);
+    } finally {
+      setSavingCash(false);
+    }
+  };
+
   return (
     <div className="bp-root">
-      {/* Hero — disponible */}
-      <div className="bp-hero">
-        <Wallet size={28} weight="fill" color="rgba(240,246,252,0.3)" />
-        <span className="bp-hero__label">Dinero disponible</span>
-        <strong className="bp-hero__amount">{fmt$(ficha?.dineroDisponible)}</strong>
-        {(ficha?.dineroEnCuenta || 0) > 0 && (
-          <span className="bp-hero__sub">+ {fmt$(ficha.dineroEnCuenta)} en cuenta</span>
-        )}
+      {/* Efectivo / En cuenta — separados, tap para editar */}
+      <div className="bp-money-cards">
+        <MoneyCard
+          variant="green"
+          icon={<Wallet size={20} weight="fill" />}
+          label="Efectivo encima"
+          value={ficha?.dineroDisponible}
+          editing={editingCash === "hand"}
+          formValue={cashForm}
+          saving={savingCash}
+          onStartEdit={() => startEdit("hand", ficha?.dineroDisponible)}
+          onChangeForm={setCashForm}
+          onSave={handleSave}
+          onCancel={() => setEditingCash(null)}
+        />
+        <MoneyCard
+          variant="blue"
+          icon={<CreditCard size={20} weight="fill" />}
+          label="En cuenta · MercadoPago"
+          value={ficha?.dineroEnCuenta}
+          editing={editingCash === "account"}
+          formValue={cashForm}
+          saving={savingCash}
+          onStartEdit={() => startEdit("account", ficha?.dineroEnCuenta)}
+          onChangeForm={setCashForm}
+          onSave={handleSave}
+          onCancel={() => setEditingCash(null)}
+        />
       </div>
 
       {/* Alertas */}
