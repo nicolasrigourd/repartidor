@@ -180,6 +180,20 @@ function App() {
       multaActual:      Number(repartidor.currentFine       ?? repartidor.multaActual)      || 0,
       baseActual:       Number(repartidor.currentBase       ?? repartidor.baseActual)       || 0,
 
+      // Capacidades autodeclaradas — el repartidor las edita libremente
+      hasThermalBag: repartidor.hasThermalBag === true,
+
+      // Movilidad — cambio sujeto a aprobación de admin
+      pendingVehicleType:       repartidor.pendingVehicleType       || "",
+      vehicleChangeRequestedAt: repartidor.vehicleChangeRequestedAt || null,
+
+      // MercadoPago — cambio sujeto a aprobación de admin
+      paymentMpAlias:        repartidor.paymentMpAlias        || "",
+      paymentMpCvu:           repartidor.paymentMpCvu          || "",
+      pendingPaymentMpAlias:  repartidor.pendingPaymentMpAlias || "",
+      pendingPaymentMpCvu:    repartidor.pendingPaymentMpCvu   || "",
+      paymentChangeRequestedAt: repartidor.paymentChangeRequestedAt || null,
+
       // Stats
       nivel:                 Number(repartidor.level             ?? repartidor.nivel)                || 1,
       valoracionesPositivas: Number(repartidor.positiveRatings   ?? repartidor.valoracionesPositivas)|| 0,

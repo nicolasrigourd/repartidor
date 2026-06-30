@@ -115,6 +115,9 @@
 
 /* Section title */
 .pfp-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 12px 16px 6px;
   font-size: 11px;
   font-weight: 800;
@@ -122,6 +125,128 @@
   letter-spacing: 0.06em;
   color: rgba(240,246,252,0.3);
   border-top: 1px solid rgba(240,246,252,0.06);
+}
+
+.pfp-section-title--toggle {
+  width: 100%;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  border-top: 1px solid rgba(240,246,252,0.06);
+  cursor: pointer;
+}
+
+/* Tarjetas de las secciones editables */
+.pfp-card {
+  margin: 0 16px 4px;
+  padding: 14px;
+  background: rgba(240,246,252,0.04);
+  border: 1px solid rgba(240,246,252,0.08);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pfp-card .pfp-rows { padding: 0; }
+.pfp-card .pfp-row { padding: 8px 0; }
+
+.pfp-link-btn {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: #22c55e;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.pfp-link-btn:active { opacity: 0.7; }
+
+.pfp-hint {
+  font-size: 11px;
+  color: rgba(240,246,252,0.35);
+  line-height: 1.4;
+}
+
+.pfp-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.pfp-toggle-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #22c55e;
+  flex-shrink: 0;
+}
+.pfp-toggle-row svg   { color: rgba(240,246,252,0.5); flex-shrink: 0; }
+.pfp-toggle-row span  { font-size: 14px; font-weight: 700; color: #f0f6fc; }
+
+.pfp-pending-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(251,191,36,0.1);
+  border: 1px solid rgba(251,191,36,0.25);
+  color: #fbbf24;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.pfp-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pfp-edit-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.pfp-edit-form__field label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(240,246,252,0.4);
+}
+.pfp-edit-form__field input,
+.pfp-edit-form__field select {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(240,246,252,0.15);
+  background: rgba(240,246,252,0.05);
+  color: #f0f6fc;
+  font-size: 14px;
+}
+.pfp-edit-form__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+.pfp-btn-primary,
+.pfp-btn-secondary {
+  flex: 1;
+  height: 40px;
+  border-radius: 10px;
+  border: none;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.pfp-btn-primary {
+  background: #22c55e;
+  color: #06230f;
+}
+.pfp-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.pfp-btn-secondary {
+  background: rgba(240,246,252,0.08);
+  color: rgba(240,246,252,0.7);
 }
 
 /* Rows */
