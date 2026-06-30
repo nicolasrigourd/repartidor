@@ -293,6 +293,11 @@ function normalizePedido(pedido) {
     payment.requiresCashHandling === true ||
     pedido?.requiresCashHandling === true;
 
+  // "driver_pays_pickup": el repartidor adelanta plata para retirar (ej.
+  // compras) — distinto de cobrarle al cliente al entregar.
+  const cashDirection = payment.cashDirection || "none";
+  const pickupCashAmount = Number(payment.cashAmount) || 0;
+
   const price =
     pricing.price ??
     payment.amount ??
@@ -337,6 +342,9 @@ function normalizePedido(pedido) {
     km,
     paymentMethod,
     requiresCashHandling,
+    cashDirection,
+    pickupCashAmount,
+    description: normalizeText(pedido?.description, ""),
 
     serviceType: normalizeText(service.label || service.type || pedido?.serviceType, "Envío"),
     serviceTypeId: service.type || "",
@@ -705,6 +713,12 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   const showCollectCashBanner =
     step === "arrived_dropoff" && data.paymentMethod !== "mercadopago" && Number(data.price) > 0;
 
+  // "Debés pagar" — al llegar al origen (recién ahí, no antes a ciegas),
+  // solo si el pedido requiere que el repartidor adelante plata para retirar.
+  const showPayAtPickupBanner =
+    step === "arrived_pickup" && data.cashDirection === "driver_pays_pickup" && data.pickupCashAmount > 0;
+  const pickupCashLabel = formatMoney(data.pickupCashAmount);
+
   // ── Loading / Error ────────────────────────────────────────
   if (loading) {
     return (
@@ -775,6 +789,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
         <div className="pa-panel-scroll">
           <div className="pa-step-badge">{stepConfig.badge}</div>
+          {data.description && <p className="pa-description">{data.description}</p>}
 
           {!isExpanded ? (
             /* ── Vista colapsada — foco en la parada actual ── */
@@ -900,6 +915,14 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
             <div className="pa-collect-alert">
               <CurrencyDollar size={18} weight="fill" />
               <span>Debés cobrar <strong>{priceLabel}</strong></span>
+            </div>
+          )}
+
+          {/* Aviso de pago — al llegar al origen, si el repartidor debe adelantar plata */}
+          {showPayAtPickupBanner && (
+            <div className="pa-pay-alert">
+              <CurrencyDollar size={18} weight="fill" />
+              <span>Acá debés pagar <strong>{pickupCashLabel}</strong></span>
             </div>
           )}
 

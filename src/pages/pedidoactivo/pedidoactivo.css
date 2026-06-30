@@ -191,6 +191,14 @@
   border-radius: 999px;
 }
 
+.pa-description {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.78);
+  line-height: 1.4;
+  margin: 0;
+}
+
 /* ── Comanda — bloques de parada ──────────────────────────── */
 .pa-comanda {
   display: flex;
@@ -333,6 +341,20 @@
   font-weight: 700;
 }
 .pa-collect-alert strong { font-weight: 900; }
+
+/* ── Aviso "Debés pagar" — al llegar al origen ────────────── */
+.pa-pay-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #F59E0B;
+  color: #451A03;
+  font-size: 15px;
+  font-weight: 700;
+}
+.pa-pay-alert strong { font-weight: 900; }
 
 /* ── Resumen — precio, distancia, pago ────────────────────── */
 .pa-summary {
