@@ -13,6 +13,7 @@ import {
   requestVehicleChange,
   requestMercadoPagoChange,
 } from "../../services/perfilService";
+import { calcRacha } from "../../utils/gamification";
 import "./PerfilPage.css";
 
 const VEHICLE_OPTIONS = [
@@ -50,22 +51,6 @@ function getLevelProgress(level, totalPedidos) {
     range,
     done: Math.min(done, range),
   };
-}
-
-function calcRacha(historial) {
-  if (!historial?.length) return 0;
-  const dias = new Set(
-    historial.filter(o => o.status === "completed").map(o => o.dateKey).filter(Boolean)
-  );
-  let racha = 0;
-  for (let i = 0; i < 365; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const k = d.toISOString().slice(0, 10);
-    if (dias.has(k)) { racha++; }
-    else if (i > 0)  { break; }
-  }
-  return racha;
 }
 
 const VEHICLE_ICONS = { moto: Motorcycle, bici: Bicycle, auto: Car };

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { App as CapApp } from "@capacitor/app";
 import {
   doc,
   onSnapshot,
@@ -473,6 +474,15 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
   useEffect(() => { routeDistKmRef.current = data?.km ?? null; }, [data]);
 
+  // Back nativo de Android → volver a Home (el pedido sigue activo allá)
+  useEffect(() => {
+    let handle = null;
+    CapApp.addListener("backButton", () => {
+      navigate("/", { replace: true });
+    }).then((h) => { handle = h; });
+    return () => { handle?.remove(); };
+  }, [navigate]);
+
   const step = data?.currentStep || "go_to_pickup";
   const stepConfig = STEP_CONFIG[step] || STEP_CONFIG.go_to_pickup;
 
@@ -711,13 +721,13 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   // "Debés cobrar" — solo en el último tramo antes de finalizar, y solo
   // si el pago es en efectivo (con MercadoPago no hay nada que cobrar).
   const showCollectCashBanner =
-    step === "arrived_dropoff" && data.paymentMethod !== "mercadopago" && Number(data.price) > 0;
+    step === "arrived_dropoff" && data?.paymentMethod !== "mercadopago" && Number(data?.price) > 0;
 
   // "Debés pagar" — al llegar al origen (recién ahí, no antes a ciegas),
   // solo si el pedido requiere que el repartidor adelante plata para retirar.
   const showPayAtPickupBanner =
-    step === "arrived_pickup" && data.cashDirection === "driver_pays_pickup" && data.pickupCashAmount > 0;
-  const pickupCashLabel = formatMoney(data.pickupCashAmount);
+    step === "arrived_pickup" && data?.cashDirection === "driver_pays_pickup" && data?.pickupCashAmount > 0;
+  const pickupCashLabel = formatMoney(data?.pickupCashAmount);
 
   // ── Loading / Error ────────────────────────────────────────
   if (loading) {

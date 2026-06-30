@@ -8,7 +8,7 @@
 
 /* ── Page layout (tabs no-home) ───────────────────────────── */
 .driver-root--page {
-  background: var(--surface, #1a1f2e);
+  background: var(--bg, #0F1117);
   display: flex;
   flex-direction: column;
 }
@@ -21,69 +21,118 @@
 }
 
 /* ── Offline layout ───────────────────────────────────────── */
+/* Capa 0 (fondo) — más oscura que header/footer/cards, da profundidad */
 .driver-home-offline {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
-  background: var(--surface, #1a1f2e);
+  background: var(--bg, #0F1117);
   overflow: hidden;
 }
 
 .driver-offline-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 80px);
+  padding: 14px 16px 12px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-/* Cards de dinero */
+/* Footer fijo — capa 1, flota sobre el fondo con sombra (no solo un border) */
+.driver-offline-footer {
+  flex-shrink: 0;
+  padding: 10px 16px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface, #1A1F2E);
+  box-shadow: 0 -6px 18px rgba(0,0,0,0.35);
+  position: relative;
+  z-index: 2;
+}
+
+/* Cards de dinero — capa 2, más clara que el fondo + sombra propia */
 .drv-money-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
 }
 .drv-money-card {
-  background: rgba(240,246,252,0.05);
-  border: 1px solid rgba(240,246,252,0.09);
+  background: var(--surface-2, #232A3B);
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
   border-radius: 16px;
-  padding: 16px 14px;
+  padding: 14px 10px;
   display: flex;
   flex-direction: column;
   gap: 5px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+}
+.drv-money-card--account {
+  border-color: rgba(56,189,248,0.3);
 }
 .drv-money-card--gain {
-  background: rgba(34,197,94,0.07);
-  border-color: rgba(34,197,94,0.18);
+  border-color: rgba(34,197,94,0.3);
+}
+.drv-money-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.drv-money-card__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(240,246,252,0.08);
+  color: rgba(240,246,252,0.85);
+}
+.drv-money-card__eye {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(240,246,252,0.06);
+  border: none;
+  border-radius: 8px;
+  color: rgba(240,246,252,0.5);
+  cursor: pointer;
 }
 .drv-money-card span {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: rgba(240,246,252,0.38);
+  color: rgba(240,246,252,0.65);
 }
 .drv-money-card strong {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 900;
   color: #f0f6fc;
   letter-spacing: -0.03em;
   line-height: 1.1;
 }
+.drv-money-card--account strong { color: #7dd3fc; }
 .drv-money-card--gain strong { color: #86efac; }
 
-/* Tarjeta de nivel */
+/* Tarjeta de nivel — capa 2 */
 .drv-level-card {
-  background: rgba(240,246,252,0.04);
-  border: 1px solid rgba(240,246,252,0.08);
+  background: var(--surface-2, #232A3B);
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
   border-radius: 16px;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.25);
 }
 .drv-level-card__top {
   display: flex;
@@ -100,7 +149,7 @@
 }
 .drv-level-hint {
   font-size: 12px;
-  color: rgba(240,246,252,0.4);
+  color: rgba(240,246,252,0.65);
 }
 .drv-level-bar {
   height: 5px;
@@ -115,15 +164,90 @@
   transition: width 0.6s ease;
 }
 
-/* Mapa preview (offline) */
-.drv-map-preview {
-  flex: 1;
-  min-height: 120px;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid rgba(240,246,252,0.08);
-  position: relative;
+/* Badges de racha + calificación — mismo formato que Perfil */
+.drv-badges {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
 }
+.drv-badge {
+  background: var(--surface-2, #232A3B);
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 14px;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+}
+.drv-badge--fire { border-color: rgba(249,115,22,0.3); }
+.drv-badge--star { border-color: rgba(251,191,36,0.3); }
+.drv-badge--pos  { border-color: rgba(34,197,94,0.3); }
+.drv-badge--neg  { border-color: rgba(239,68,68,0.3); }
+
+.drv-badge strong { font-size: 18px; font-weight: 900; color: #f0f6fc; letter-spacing: -0.03em; }
+.drv-badge span   { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: rgba(240,246,252,0.6); }
+.drv-badge--fire svg, .drv-badge--fire strong { color: #fb923c; }
+.drv-badge--star svg, .drv-badge--star strong { color: #fbbf24; }
+.drv-badge--pos  svg, .drv-badge--pos  strong { color: #86efac; }
+.drv-badge--neg  svg, .drv-badge--neg  strong { color: #fca5a5; }
+
+/* Cómo mejorás tus chances */
+.drv-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.drv-tips__title {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(240,246,252,0.65);
+  padding: 0 2px;
+}
+.drv-tip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface-2, #232A3B);
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 14px;
+  padding: 12px;
+  cursor: pointer;
+  color: inherit;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+}
+.drv-tip:disabled { cursor: default; }
+.drv-tip__icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: rgba(96,165,250,0.12);
+  color: #60a5fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.drv-tip__text {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(240,246,252,0.75);
+  line-height: 1.35;
+}
+.drv-tip__hint {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(240,246,252,0.3);
+}
+.drv-tip svg:last-child { flex-shrink: 0; color: rgba(240,246,252,0.25); }
+
 
 /* ── Online mode flotantes ────────────────────────────────── */
 .driver-online-topbar {
@@ -199,6 +323,23 @@
   backdrop-filter: blur(6px);
 }
 
+.driver-network-warning-banner {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(217, 119, 6, 0.92);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 10px;
+  max-width: 90vw;
+  text-align: center;
+  z-index: 30;
+  backdrop-filter: blur(6px);
+}
+
 .driver-online-bottombar {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
@@ -251,8 +392,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--surface, #1a1f2e);
-  border-bottom: 1px solid rgba(240,246,252,0.07);
+  background: var(--surface, #1A1F2E);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  position: relative;
+  z-index: 2;
 }
 
 .driver-header__left {
@@ -525,17 +668,6 @@
   letter-spacing: 0.04em;
   color: rgba(240,246,252,0.35);
   line-height: 1;
-}
-
-.drv-error-box {
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: rgba(239,68,68,0.12);
-  border: 1px solid rgba(239,68,68,0.25);
-  color: #fca5a5;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.3;
 }
 
 .drv-metrics {

@@ -172,25 +172,6 @@ export default function BilleteraPage({ ficha, repartidorId }) {
           </div>
         </div>
       </div>
-
-      {/* Deudas y multas */}
-      <div className="bp-section">
-        <span className="bp-section__title">Obligaciones</span>
-        <div className="bp-rows">
-          <div className="bp-row">
-            <span>Deuda actual</span>
-            <strong className={hayDeuda ? "bp-danger" : ""}>{fmt$(ficha?.deudaActual)}</strong>
-          </div>
-          <div className="bp-row">
-            <span>Multa actual</span>
-            <strong className={hayMulta ? "bp-warning" : ""}>{fmt$(ficha?.multaActual)}</strong>
-          </div>
-          <div className="bp-row">
-            <span>Base del día</span>
-            <strong>{fmt$(ficha?.baseActual)}</strong>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

@@ -33,7 +33,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: rgba(240,246,252,0.35);
+  color: rgba(240,246,252,0.6);
 }
 
 /* Empty */
@@ -59,8 +59,31 @@
   align-items: center;
   padding: 10px 16px 6px;
 }
-.pp-group__date  { font-size: 12px; font-weight: 800; color: rgba(240,246,252,0.6); text-transform: uppercase; letter-spacing: 0.05em; }
-.pp-group__count { font-size: 11px; color: rgba(240,246,252,0.3); }
+.pp-group__date  { font-size: 12px; font-weight: 800; color: rgba(240,246,252,0.7); text-transform: uppercase; letter-spacing: 0.05em; }
+.pp-group__count { font-size: 11px; color: rgba(240,246,252,0.5); }
+
+/* Swipe to hide (solo días anteriores) */
+.pp-swipe-wrap {
+  position: relative;
+  overflow: hidden;
+}
+.pp-swipe-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(239,68,68,0.85);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.pp-swipe-content {
+  position: relative;
+  background: var(--surface-2, #232A3B);
+  touch-action: pan-y;
+}
 
 /* Items */
 .pp-item {
@@ -94,11 +117,66 @@
 .pp-item__route svg  { flex-shrink: 0; color: rgba(240,246,252,0.3); }
 .pp-item__route span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.pp-item__time {
-  font-size: 11px;
-  color: rgba(240,246,252,0.3);
+.pp-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.pp-item__right    { flex-shrink: 0; }
+.pp-item__type {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(240,246,252,0.6);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(240,246,252,0.08);
+}
+
+.pp-item__time {
+  font-size: 11px;
+  color: rgba(240,246,252,0.5);
+}
+
+.pp-item__right {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
 .pp-item__earn     { font-size: 15px; font-weight: 800; color: #86efac; }
 .pp-item__cancel   { font-size: 12px; font-weight: 600; color: rgba(239,68,68,0.65); }
+.pp-item__payment  { font-size: 10px; font-weight: 600; color: rgba(240,246,252,0.5); }
+
+/* Toast de "Deshacer" tras ocultar un pedido */
+.pp-undo-toast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(78px + env(safe-area-inset-bottom, 0));
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2, #232A3B);
+  border: 1px solid rgba(240,246,252,0.1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+.pp-undo-toast span {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(240,246,252,0.8);
+}
+.pp-undo-toast button {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #4ade80;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 2px 4px;
+}

@@ -5,14 +5,27 @@ import "./home.css";
 import BottomBar     from "../../components/bottombar/bottombar";
 import MapaRepartidor from "../../components/maparepartidor/MapaRepartidor";
 import OfertaPantalla from "../../components/ofertapantalla/OfertaPantalla";
-import { Bell, UserCircle, SignOut, X, Trophy, House, WifiSlash, ListBullets } from "@phosphor-icons/react";
+import {
+  Bell, UserCircle, SignOut, X, Trophy, House, WifiSlash, ListBullets,
+  Fire, Star, ThumbsUp, ThumbsDown, ThermometerCold, CreditCard, TrendUp, CaretRight,
+  CurrencyDollar, Bank, PiggyBank, Eye, EyeSlash,
+} from "@phosphor-icons/react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { repartidorDb } from "../../db/repartidorDb";
 import { getProfile } from "../../services/dbSyncService";
-import PedidosPage   from "../pedidos/PedidosPage";
-import BilleteraPage from "../billetera/BilleteraPage";
-import PerfilPage    from "../perfil/PerfilPage";
+import { calcRacha } from "../../utils/gamification";
+import PedidosPage     from "../pedidos/PedidosPage";
+import BilleteraPage   from "../billetera/BilleteraPage";
+import AutogestionPage from "../autogestion/AutogestionPage";
+import PerfilPage      from "../perfil/PerfilPage";
 import ModalDeudaPago from "../../components/modaldeudapago/ModalDeudaPago";
+import ModalBateriaBaja from "../../components/modalbateriabaja/ModalBateriaBaja";
+import ModalCuentaBloqueada from "../../components/modalcuentabloqueada/ModalCuentaBloqueada";
+import ModalGpsError from "../../components/modalgpserror/ModalGpsError";
+import ModalSinConexion from "../../components/modalsinconexion/ModalSinConexion";
+import { getBatteryInfo, isBatteryCritical } from "../../services/batteryService";
+import { getNetworkStatus, addNetworkListener } from "../../services/networkService";
+import { App as CapApp } from "@capacitor/app";
 
 import {
   doc,
@@ -29,6 +42,19 @@ const GEO_OPTIONS = {
   timeout: 15000,
   maximumAge: 0,
 };
+
+// Motivo de bloqueo de cuenta por parte de la central — usado tanto antes
+// de conectar (handleConnectAttempt) como en el enforcement post-conexión,
+// para mantener un único texto/orden de prioridad. Recibe campos sueltos
+// (no el objeto ficha completo) para que los hooks que la llaman declaren
+// dependencias exactas en vez de depender de la referencia del objeto.
+function getCuentaBlockReason(bloqueado, activo, usaApp, visible) {
+  if (bloqueado === true) return "Tu cuenta fue bloqueada por la central.";
+  if (activo === false) return "Tu cuenta fue desactivada.";
+  if (usaApp === false) return "Se revocó tu acceso a la app.";
+  if (visible === false) return "Tu cuenta fue ocultada por la central.";
+  return null;
+}
 
 function haversineM(a, b) {
   if (!a || !b) return Infinity;
@@ -161,7 +187,12 @@ function Home({ repartidorId, user, onLogout }) {
 
   const [activeTab, setActiveTab] = useState("home");
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [previewCoords, setPreviewCoords] = useState(null);
+  const [hiddenAmounts, setHiddenAmounts] = useState(new Set());
+  const toggleAmount = (field) => setHiddenAmounts(prev => {
+    const next = new Set(prev);
+    next.has(field) ? next.delete(field) : next.add(field);
+    return next;
+  });
 
   // ── Stats desde IndexedDB (reactivos vía useLiveQuery) ────
   const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -174,11 +205,21 @@ function Home({ repartidorId, user, onLogout }) {
     () => repartidorDb.estadisticas.get("total"),
     []
   );
+  const historial = useLiveQuery(() => repartidorDb.historial.toArray(), []);
+  const racha     = useMemo(() => calcRacha(historial), [historial]);
 
   const [showDeudaModal, setShowDeudaModal] = useState(false);
   const [deudaModal, setDeudaModal] = useState({ deuda: 0, multa: 0 });
   const [pagoLoading, setPagoLoading] = useState(false);
   const [pendingForcedDisconnect, setPendingForcedDisconnect] = useState(null);
+  const [showBatteryModal, setShowBatteryModal] = useState(false);
+  const [batteryLevel, setBatteryLevel] = useState(null);
+  const [batteryCharging, setBatteryCharging] = useState(false);
+  const [showCuentaBloqueadaModal, setShowCuentaBloqueadaModal] = useState(false);
+  const [cuentaBloqueadaReason, setCuentaBloqueadaReason] = useState("");
+  const [showSinConexionModal, setShowSinConexionModal] = useState(false);
+  const [isNetworkConnected, setIsNetworkConnected] = useState(true);
+  const networkDisconnectTimerRef = useRef(null);
 
   // Para display en UI — ficha se actualiza via onSnapshot en App.jsx
   const deudaActual = Number(ficha.deudaActual) || 0;
@@ -854,9 +895,35 @@ function Home({ repartidorId, user, onLogout }) {
     writeAdmissionRequest,
   ]);
 
-  // Antes de iniciar el flujo de conexión, valida deuda/multa pendientes.
-  // Si tiene pagos pendientes, muestra el modal en lugar de pedir el GPS.
+  // Antes de iniciar el flujo de conexión, valida red, cuenta, batería y
+  // deuda/multa pendientes. Sin internet no tiene sentido avanzar con nada.
   const handleConnectAttempt = useCallback(async () => {
+    const netStatus = await getNetworkStatus();
+    if (!netStatus.connected) {
+      setShowSinConexionModal(true);
+      return;
+    }
+
+    const cuentaBlockReason = getCuentaBlockReason(
+      ficha.bloqueado,
+      ficha.activo,
+      ficha.usaApp,
+      ficha.visible
+    );
+    if (cuentaBlockReason) {
+      setCuentaBloqueadaReason(cuentaBlockReason);
+      setShowCuentaBloqueadaModal(true);
+      return;
+    }
+
+    const battery = await getBatteryInfo();
+    setBatteryLevel(battery.level);
+    setBatteryCharging(battery.isCharging);
+    if (isBatteryCritical(battery)) {
+      setShowBatteryModal(true);
+      return;
+    }
+
     const profile = await getProfile();
     const debt = Number(profile?.currentDebt ?? profile?.deudaActual ?? 0);
     const fine = Number(profile?.currentFine ?? profile?.multaActual ?? 0);
@@ -866,7 +933,7 @@ function Home({ repartidorId, user, onLogout }) {
       return;
     }
     handleStartWork();
-  }, [handleStartWork]);
+  }, [ficha.bloqueado, ficha.activo, ficha.usaApp, ficha.visible, handleStartWork]);
 
   const handlePrimeGpsAttempt = useCallback(async () => {
     const profile = await getProfile();
@@ -878,6 +945,18 @@ function Home({ repartidorId, user, onLogout }) {
 
   const handleCerrarDeudaModal = useCallback(() => {
     setShowDeudaModal(false);
+  }, []);
+
+  const handleCerrarBatteryModal = useCallback(() => {
+    setShowBatteryModal(false);
+  }, []);
+
+  const handleCerrarCuentaBloqueadaModal = useCallback(() => {
+    setShowCuentaBloqueadaModal(false);
+  }, []);
+
+  const handleCerrarSinConexionModal = useCallback(() => {
+    setShowSinConexionModal(false);
   }, []);
 
   const handlePagarDeuda = useCallback(async () => {
@@ -1123,25 +1202,146 @@ function Home({ repartidorId, user, onLogout }) {
     return () => stopGpsWatch();
   }, [stopGpsWatch]);
 
+  // Batería — sondeo periódico mientras está conectado (cada 60s).
+  // No se mide mientras está offline para no gastar batería de más.
+  useEffect(() => {
+    const estaConectado = !["offline", "error"].includes(workStatus);
+    if (!estaConectado) return;
+
+    let cancelled = false;
+    const check = async () => {
+      const info = await getBatteryInfo();
+      if (cancelled) return;
+      setBatteryLevel(info.level);
+      setBatteryCharging(info.isCharging);
+    };
+    check();
+    const id = setInterval(check, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [workStatus]);
+
+  // ── Botón back de Android ─────────────────────────────────
+  // Usamos un ref sincronizado con el estado actual para que el callback
+  // del listener siempre lea valores frescos sin necesidad de re-registrarse.
+  const backStateRef = useRef({});
+  backStateRef.current = {
+    showDeudaModal,
+    pagoLoading,
+    showBatteryModal,
+    showCuentaBloqueadaModal,
+    geoError,
+    showSinConexionModal,
+    showProfileMenu,
+    activeTab,
+    workStatus,
+    pedidoActivo,
+    pedidoOfertado,
+    markOffline,
+  };
+
+  useEffect(() => {
+    let handle = null;
+
+    CapApp.addListener("backButton", () => {
+      const s = backStateRef.current;
+
+      // Oferta en pantalla — no rechazarla por accidente con back
+      if (s.pedidoOfertado) return;
+
+      // Modales — cerrar el más prioritario que esté abierto
+      if (s.showDeudaModal && !s.pagoLoading) { setShowDeudaModal(false);        return; }
+      if (s.showBatteryModal)                  { setShowBatteryModal(false);       return; }
+      if (s.showCuentaBloqueadaModal)           { setShowCuentaBloqueadaModal(false); return; }
+      if (s.geoError)                           { setGeoError("");                 return; }
+      if (s.showSinConexionModal)               { setShowSinConexionModal(false);  return; }
+
+      // Menú de perfil
+      if (s.showProfileMenu) { setShowProfileMenu(false); return; }
+
+      // Tab secundaria → volver a home tab
+      if (s.activeTab !== "home") { setActiveTab("home"); return; }
+
+      // Tab home: si está conectado sin pedido activo → desconectar antes de salir
+      const isConnected = !["offline", "error"].includes(s.workStatus);
+      if (isConnected && !s.pedidoActivo) {
+        s.markOffline("user_back_exit");
+      }
+      CapApp.exitApp();
+    }).then((h) => { handle = h; });
+
+    return () => { handle?.remove(); };
+  }, []); // se registra una sola vez — el estado lo lee desde backStateRef
+
+  // Red — listener nativo mientras está conectado. Solo trackea el estado;
+  // la lógica de desconexión vive en el efecto siguiente.
+  useEffect(() => {
+    const estaConectado = !["offline", "error"].includes(workStatus);
+    if (!estaConectado) {
+      setIsNetworkConnected(true); // reset al desconectarse para evitar estado residual
+      return;
+    }
+
+    let handle = null;
+    let cancelled = false;
+
+    addNetworkListener((status) => {
+      if (cancelled) return;
+      setIsNetworkConnected(status.connected);
+    }).then((h) => { handle = h; });
+
+    return () => {
+      cancelled = true;
+      handle?.remove();
+    };
+  }, [workStatus]);
+
+  // Red — reacciona a cambios de conectividad durante el turno.
+  // Sin pedido activo: auto-desconecta tras 60s sin señal.
+  // Con pedido activo: solo muestra banner, nunca fuerza desconexión.
+  useEffect(() => {
+    const estaConectado = !["offline", "error"].includes(workStatus);
+    if (!estaConectado) return;
+
+    if (isNetworkConnected) {
+      if (networkDisconnectTimerRef.current) {
+        clearTimeout(networkDisconnectTimerRef.current);
+        networkDisconnectTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (pedidoActivo) return;
+
+    networkDisconnectTimerRef.current = setTimeout(() => {
+      markOffline("forced_no_connection");
+    }, 60000);
+
+    return () => {
+      if (networkDisconnectTimerRef.current) {
+        clearTimeout(networkDisconnectTimerRef.current);
+        networkDisconnectTimerRef.current = null;
+      }
+    };
+  }, [isNetworkConnected, workStatus, pedidoActivo, markOffline]);
+
   // ── Enforcement en tiempo real ────────────────────────────
-  // Detecta cambios en ficha mientras el repartidor está conectado.
-  // Si falla elegibilidad: desconecta inmediato si está libre,
-  // o marca desconexión pendiente si tiene pedido activo.
+  // Detecta cambios en ficha (o batería) mientras el repartidor está
+  // conectado. Si falla elegibilidad: desconecta inmediato si está libre,
+  // o marca desconexión pendiente si tiene pedido activo — nunca lo
+  // desconectamos a la fuerza en medio de una entrega.
   useEffect(() => {
     const estaConectado = !["offline", "error"].includes(workStatus);
     if (!estaConectado || isBootstrapping) return;
 
+    const bateriaCritica = isBatteryCritical({ level: batteryLevel, isCharging: batteryCharging });
+
     let razon = null;
     if (deudaActual > 0 || multaActual > 0)
       razon = "Tenés pagos pendientes registrados por la central.";
-    else if (ficha.bloqueado === true)
-      razon = "Tu cuenta fue bloqueada por la central.";
-    else if (ficha.activo === false)
-      razon = "Tu cuenta fue desactivada.";
-    else if (ficha.usaApp === false)
-      razon = "Se revocó tu acceso a la app.";
-    else if (ficha.visible === false)
-      razon = "Tu cuenta fue ocultada por la central.";
+    else
+      razon = getCuentaBlockReason(ficha.bloqueado, ficha.activo, ficha.usaApp, ficha.visible);
+    if (!razon && bateriaCritica)
+      razon = `Tu batería está en ${batteryLevel}%. Cargá tu dispositivo — te vas a desconectar al terminar este pedido.`;
 
     if (!razon) {
       setPendingForcedDisconnect(null);
@@ -1151,9 +1351,9 @@ function Home({ repartidorId, user, onLogout }) {
     if (pedidoActivo) {
       setPendingForcedDisconnect(prev => prev || razon);
     } else {
-      markOffline("forced_profile_change");
+      markOffline(bateriaCritica ? "forced_low_battery" : "forced_profile_change");
     }
-  }, [deudaActual, multaActual, ficha.bloqueado, ficha.activo, ficha.usaApp, ficha.visible, workStatus, isBootstrapping, pedidoActivo, markOffline]);
+  }, [deudaActual, multaActual, ficha.bloqueado, ficha.activo, ficha.usaApp, ficha.visible, workStatus, isBootstrapping, pedidoActivo, markOffline, batteryLevel, batteryCharging]);
 
   // Ejecuta la desconexión pendiente cuando el repartidor termina su pedido
   useEffect(() => {
@@ -1162,17 +1362,6 @@ function Home({ repartidorId, user, onLogout }) {
     markOffline("forced_after_delivery");
   }, [pedidoActivo, pendingForcedDisconnect, markOffline]);
 
-  // GPS preview — posición local cuando offline, sin escribir a Firebase
-  useEffect(() => {
-    const isOnline = ["online", "busy", "pending_admission", "starting"].includes(workStatus);
-    if (isOnline || activeTab !== "home" || !navigator.geolocation) return;
-    const id = navigator.geolocation.watchPosition(
-      (pos) => setPreviewCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {},
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 30000 }
-    );
-    return () => navigator.geolocation.clearWatch(id);
-  }, [workStatus, activeTab]);
 
   const aceptarOferta = useCallback(
     async (oferta) => {
@@ -1367,6 +1556,91 @@ function Home({ repartidorId, user, onLogout }) {
     );
   };
 
+  // ── Badges de racha + calificación — mismo formato que Perfil ─
+  const renderStatsBadges = () => {
+    const avgRating = statsTotal?.avgRating;
+    const positivas = ficha?.valoracionesPositivas ?? 0;
+    const negativas = ficha?.valoracionesNegativas ?? 0;
+
+    return (
+      <div className="drv-badges">
+        <div className="drv-badge drv-badge--fire">
+          <Fire size={20} weight="fill" />
+          <strong>{racha}</strong>
+          <span>{racha === 1 ? "día racha" : "días racha"}</span>
+        </div>
+        <div className="drv-badge drv-badge--star">
+          <Star size={20} weight="fill" />
+          <strong>{avgRating != null ? avgRating.toFixed(1) : "—"}</strong>
+          <span>Rating</span>
+        </div>
+        <div className="drv-badge drv-badge--pos">
+          <ThumbsUp size={20} weight="fill" />
+          <strong>{positivas}</strong>
+          <span>Positivas</span>
+        </div>
+        <div className="drv-badge drv-badge--neg">
+          <ThumbsDown size={20} weight="fill" />
+          <strong>{negativas}</strong>
+          <span>Negativas</span>
+        </div>
+      </div>
+    );
+  };
+
+  // ── "Cómo mejorás tus chances" — nudges previo a conectar ──
+  // La tasa de aceptación todavía es solo visual (no hay contadores reales
+  // de ofertas aceptadas/rechazadas todavía) — se muestra como preview de
+  // diseño, se conecta a datos reales más adelante.
+  const renderTipsCard = () => {
+    const tips = [];
+
+    if (!ficha?.hasThermalBag) {
+      tips.push({
+        key: "termica",
+        icon: <ThermometerCold size={16} weight="fill" />,
+        text: "Si usás mochila o caja térmica, mejorás tus chances de recibir pedidos delivery",
+        onClick: () => setActiveTab("perfil"),
+      });
+    }
+    if (!ficha?.paymentMpAlias) {
+      tips.push({
+        key: "mercadopago",
+        icon: <CreditCard size={16} weight="fill" />,
+        text: "Configurá MercadoPago para aceptar más pedidos",
+        onClick: () => setActiveTab("perfil"),
+      });
+    }
+    tips.push({
+      key: "aceptacion",
+      icon: <TrendUp size={16} weight="fill" />,
+      text: "Mejorando tu tasa de aceptación vas a recibir más y mejores pedidos",
+      hint: "87% (preview)",
+      onClick: null,
+    });
+
+    if (!tips.length) return null;
+
+    return (
+      <div className="drv-tips">
+        <span className="drv-tips__title">Cómo mejorás tus chances</span>
+        {tips.map((tip) => (
+          <button
+            key={tip.key}
+            className="drv-tip"
+            onClick={tip.onClick || undefined}
+            disabled={!tip.onClick}
+          >
+            <span className="drv-tip__icon">{tip.icon}</span>
+            <span className="drv-tip__text">{tip.text}</span>
+            {tip.hint && <span className="drv-tip__hint">{tip.hint}</span>}
+            {tip.onClick && <CaretRight size={14} weight="bold" />}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   // ── Action button ──────────────────────────────────────────
   const renderActionButton = () => {
     if (isBootstrapping) {
@@ -1418,9 +1692,10 @@ function Home({ repartidorId, user, onLogout }) {
       <div className="driver-root driver-root--page">
         {renderHeader()}
         <div className="driver-page-scroll">
-          {activeTab === "pedidos"   && <PedidosPage />}
-          {activeTab === "billetera" && <BilleteraPage ficha={ficha} repartidorId={repartidorId} />}
-          {activeTab === "perfil"    && (
+          {activeTab === "pedidos"     && <PedidosPage />}
+          {activeTab === "billetera"   && <BilleteraPage ficha={ficha} repartidorId={repartidorId} />}
+          {activeTab === "autogestion" && <AutogestionPage ficha={ficha} />}
+          {activeTab === "perfil"      && (
             <PerfilPage
               ficha={ficha}
               nombreCompleto={nombreCompleto}
@@ -1458,32 +1733,83 @@ function Home({ repartidorId, user, onLogout }) {
         onCancelar={handleCerrarDeudaModal}
       />
 
+      <ModalBateriaBaja
+        open={showBatteryModal}
+        level={batteryLevel}
+        onCerrar={handleCerrarBatteryModal}
+      />
+
+      <ModalCuentaBloqueada
+        open={showCuentaBloqueadaModal}
+        reason={cuentaBloqueadaReason}
+        onCerrar={handleCerrarCuentaBloqueadaModal}
+      />
+
+      <ModalSinConexion
+        open={showSinConexionModal}
+        onCerrar={handleCerrarSinConexionModal}
+      />
+
+      <ModalGpsError
+        open={!estaOnline && Boolean(geoError)}
+        message={geoError}
+        onCerrar={() => setGeoError("")}
+      />
+
+      {pendingForcedDisconnect && (
+        <div className="driver-forced-disconnect-banner">{pendingForcedDisconnect}</div>
+      )}
+
+      {!isNetworkConnected && !["offline", "error"].includes(workStatus) && (
+        <div className="driver-network-warning-banner">
+          {pedidoActivo
+            ? "Sin conexión — tu GPS está pausado. Tu pedido sigue activo."
+            : "Sin conexión — te desconectaremos en 60 segundos si no recuperás señal."}
+        </div>
+      )}
+
       {!estaOnline ? (
-        /* MODO OFFLINE — info panel + mapa embebido */
+        /* MODO OFFLINE — info panel, contenido scrolleable + footer fijo */
         <div className="driver-home-offline">
           {renderHeader()}
           <div className="driver-offline-scroll">
+            {renderLevelCard()}
             <div className="drv-money-row">
               <div className="drv-money-card">
-                <span>Disponible</span>
-                <strong>{formatMoney(ficha.dineroDisponible)}</strong>
+                <div className="drv-money-card__top">
+                  <span className="drv-money-card__icon"><CurrencyDollar size={15} weight="fill" /></span>
+                  <button className="drv-money-card__eye" onClick={() => toggleAmount('cash')}>
+                    {hiddenAmounts.has('cash') ? <EyeSlash size={14} weight="bold" /> : <Eye size={14} weight="bold" />}
+                  </button>
+                </div>
+                <span>Efectivo</span>
+                <strong>{hiddenAmounts.has('cash') ? "••••" : formatMoney(ficha.dineroDisponible)}</strong>
+              </div>
+              <div className="drv-money-card drv-money-card--account">
+                <div className="drv-money-card__top">
+                  <span className="drv-money-card__icon"><Bank size={15} weight="fill" /></span>
+                  <button className="drv-money-card__eye" onClick={() => toggleAmount('account')}>
+                    {hiddenAmounts.has('account') ? <EyeSlash size={14} weight="bold" /> : <Eye size={14} weight="bold" />}
+                  </button>
+                </div>
+                <span>En cuenta</span>
+                <strong>{hiddenAmounts.has('account') ? "••••" : formatMoney(ficha.dineroEnCuenta)}</strong>
               </div>
               <div className="drv-money-card drv-money-card--gain">
+                <div className="drv-money-card__top">
+                  <span className="drv-money-card__icon"><PiggyBank size={15} weight="fill" /></span>
+                  <button className="drv-money-card__eye" onClick={() => toggleAmount('gain')}>
+                    {hiddenAmounts.has('gain') ? <EyeSlash size={14} weight="bold" /> : <Eye size={14} weight="bold" />}
+                  </button>
+                </div>
                 <span>Ganancia hoy</span>
-                <strong>{formatMoney(statsHoy?.gananciaTotal || 0)}</strong>
+                <strong>{hiddenAmounts.has('gain') ? "••••" : formatMoney(statsHoy?.gananciaTotal || 0)}</strong>
               </div>
             </div>
-            {renderLevelCard()}
-            <div className="drv-map-preview">
-              <MapaRepartidor
-                workStatus="offline"
-                liveCoords={previewCoords}
-                zonas={heatZones}
-                ofertaCoords={null}
-                pedidoActivo={null}
-              />
-            </div>
-            {geoError && <div className="drv-error-box">{geoError}</div>}
+            {renderStatsBadges()}
+            {renderTipsCard()}
+          </div>
+          <div className="driver-offline-footer">
             {renderActionButton()}
           </div>
           <BottomBar activeTab={activeTab} onChangeTab={setActiveTab} />

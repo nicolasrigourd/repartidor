@@ -23,10 +23,29 @@ function toMonthKey(dateKey) {
 
 function extractEarnings(order) {
   return (
+    Number(order.pricing?.price)          ||
     Number(order.pricing?.driverEarnings) ||
     Number(order.pricing?.deliveryFee)    ||
     Number(order.pricing?.total)          ||
     0
+  );
+}
+
+function extractOriginName(order) {
+  return (
+    order.pickup?.contact?.fullName ||
+    order.customer?.name ||
+    order.customerName ||
+    ""
+  );
+}
+
+function extractDestinationName(order) {
+  return (
+    order.recipient?.name ||
+    order.dropoff?.contact?.fullName ||
+    order.customerName ||
+    ""
   );
 }
 
@@ -41,9 +60,7 @@ export function startSync(repartidorId) {
   stopSync();
   syncRepartidorId = repartidorId;
   _syncProfile(repartidorId);
-  // _syncHistorial deshabilitado hasta crear índice compuesto en Firestore:
-  // assignedDriverId ASC + status ASC + createdAtMs DESC en colección orders
-  // _syncHistorial(repartidorId);
+  _syncHistorial(repartidorId);
 }
 
 // Llamado desde App.jsx cada vez que onSnapshot del repartidor recibe datos frescos
@@ -82,8 +99,9 @@ function _syncProfile(repartidorId) {
 // → recomputa "estadisticas"
 
 function _syncHistorial(repartidorId) {
-  // Busca los últimos 90 días de pedidos de este repartidor
-  // Intenta primero con assignedDriverId (schema nuevo), con fallback en offer.driverId
+  // Trae los últimos 200 pedidos finalizados/cancelados de este repartidor.
+  // El listener auto-poda IndexedDB: cuando un doc sale del top-200 al llegar
+  // uno más nuevo, Firestore emite un docChange "removed" (manejado abajo).
   const q = query(
     collection(db, "orders"),
     where("assignedDriverId", "==", repartidorId),
@@ -121,9 +139,12 @@ function _syncHistorial(repartidorId) {
 
           pickup:  data.pickup  || null,
           dropoff: data.dropoff || null,
+          originName:      extractOriginName(data),
+          destinationName: extractDestinationName(data),
 
-          orderType: data.orderType || data.tipoPedido || "",
-          pricing:   data.pricing   || null,
+          orderType: data.service?.label || data.service?.type || data.orderType || data.tipoPedido || "",
+          pricing:   data.pricing || null,
+          payment:   data.payment || null,
           earnings:  extractEarnings(data),
 
           offer:     data.offer    || null,

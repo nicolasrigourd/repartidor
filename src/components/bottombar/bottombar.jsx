@@ -4,6 +4,7 @@ const TABS = [
   { id: "home", label: "Home", icon: "home" },
   { id: "pedidos", label: "Pedidos", icon: "box" },
   { id: "billetera", label: "Billetera", icon: "wallet" },
+  { id: "autogestion", label: "Mi cuenta", icon: "receipt" },
   { id: "perfil", label: "Perfil", icon: "user" },
 ];
 
@@ -24,6 +25,10 @@ function renderIcon(iconId) {
     case "user":
       return (
         <path d="M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Zm0 9c-4 0-7 2-7 4.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1.5C19 15 16 13 12 13Z" />
+      );
+    case "receipt":
+      return (
+        <path d="M6 2.5h12a.5.5 0 0 1 .5.5v18.3a.5.5 0 0 1-.74.44l-1.78-.98a.5.5 0 0 0-.5.01l-1.5.9a.5.5 0 0 1-.52 0l-1.46-.9a.5.5 0 0 0-.5 0l-1.5.9a.5.5 0 0 1-.52 0l-1.46-.9a.5.5 0 0 0-.5 0l-1.78.98A.5.5 0 0 1 5.5 21.3V3a.5.5 0 0 1 .5-.5Zm2 5h8v1.5H8V7.5Zm0 4h8V13H8v-1.5Zm0 4h5V17H8v-1.5Z" />
       );
     default:
       return null;

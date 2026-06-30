@@ -1,7 +1,9 @@
 .bottombar-root {
   height: 70px;
-  border-top: 1px solid rgba(148, 163, 184, 0.25);
-  background: rgba(15, 23, 42, 0.96);
+  background: var(--surface, #1A1F2E);
+  box-shadow: 0 -6px 18px rgba(0,0,0,0.35);
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-around;
