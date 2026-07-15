@@ -131,52 +131,43 @@ export default function AutogestionPage({ ficha, repartidorId }) {
           <Wallet size={13} weight="bold" /> Mi cuenta
         </span>
 
-        {total <= 0 ? (
-          <div className="ap-status ap-status--ok">
-            <CheckCircle size={32} weight="fill" />
-            <div className="ap-status__text">
-              <strong>Estás al día</strong>
-              <span>No tenés deuda ni multas pendientes</span>
-            </div>
-          </div>
-        ) : (
-          <div className="ap-status ap-status--pendiente">
-            <WarningCircle size={32} weight="fill" />
-            <div className="ap-status__text">
-              <strong>Tenés pagos pendientes</strong>
-              <span>Total a pagar</span>
-            </div>
-            <strong className="ap-status__monto">{fmt$(total)}</strong>
-          </div>
-        )}
-
-        <div className="ap-cards">
-          <div className="ap-card">
-            <Coins size={18} weight="fill" className="ap-card__icon ap-card__icon--base" />
-            <span className="ap-card__label">Base del día</span>
-            <strong className="ap-card__value">{fmt$(base)}</strong>
+        <div className="ap-montos">
+          <div className="ap-monto">
+            <Coins size={20} weight="fill" className="ap-monto__icon ap-monto__icon--base" />
+            <strong className="ap-monto__valor">{fmt$(base)}</strong>
+            <span className="ap-monto__label">Base del día</span>
           </div>
           {deuda > 0 && (
-            <div className="ap-card ap-card--danger">
-              <Warning size={18} weight="fill" className="ap-card__icon ap-card__icon--danger" />
-              <span className="ap-card__label">Deuda</span>
-              <strong className="ap-card__value">{fmt$(deuda)}</strong>
+            <div className="ap-monto">
+              <Warning size={20} weight="fill" className="ap-monto__icon ap-monto__icon--danger" />
+              <strong className="ap-monto__valor ap-danger">{fmt$(deuda)}</strong>
+              <span className="ap-monto__label">Deuda</span>
             </div>
           )}
           {multa > 0 && (
-            <div className="ap-card ap-card--warning">
-              <Warning size={18} weight="fill" className="ap-card__icon ap-card__icon--warning" />
-              <span className="ap-card__label">Multa</span>
-              <strong className="ap-card__value">{fmt$(multa)}</strong>
+            <div className="ap-monto">
+              <Warning size={20} weight="fill" className="ap-monto__icon ap-monto__icon--warning" />
+              <strong className="ap-monto__valor ap-warning">{fmt$(multa)}</strong>
+              <span className="ap-monto__label">Multa</span>
             </div>
           )}
         </div>
 
-        {total > 0 && (
-          <button className="ap-pay-btn" disabled>
-            Pagar {fmt$(total)}
-          </button>
+        {total <= 0 ? (
+          <div className="ap-status ap-status--ok">
+            <CheckCircle size={18} weight="fill" />
+            <span>Estás al día — no tenés deuda ni multas pendientes</span>
+          </div>
+        ) : (
+          <div className="ap-status ap-status--pendiente">
+            <WarningCircle size={18} weight="fill" />
+            <span>Tenés <strong>{fmt$(total)}</strong> pendiente de pago</span>
+          </div>
         )}
+
+        <button className="ap-pay-btn" disabled={total <= 0}>
+          {total > 0 ? `Pagar ${fmt$(total)}` : "Pagar"}
+        </button>
       </div>
 
       <div className="ap-section">
