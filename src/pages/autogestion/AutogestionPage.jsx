@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ReceiptX, Wallet, ClockCounterClockwise, CaretDown, CheckCircle, WarningCircle,
+  Coins, Warning,
 } from "@phosphor-icons/react";
 import { getHistorialBase } from "../../services/miCuentaService";
 import "./AutogestionPage.css";
@@ -129,28 +130,53 @@ export default function AutogestionPage({ ficha, repartidorId }) {
         <span className="ap-section__title">
           <Wallet size={13} weight="bold" /> Mi cuenta
         </span>
-        <div className="ap-rows">
-          <div className="ap-row">
-            <span>Deuda actual</span>
-            <strong className={deuda > 0 ? "ap-danger" : ""}>{fmt$(deuda)}</strong>
+
+        {total <= 0 ? (
+          <div className="ap-status ap-status--ok">
+            <CheckCircle size={32} weight="fill" />
+            <div className="ap-status__text">
+              <strong>Estás al día</strong>
+              <span>No tenés deuda ni multas pendientes</span>
+            </div>
           </div>
-          <div className="ap-row">
-            <span>Multa actual</span>
-            <strong className={multa > 0 ? "ap-warning" : ""}>{fmt$(multa)}</strong>
+        ) : (
+          <div className="ap-status ap-status--pendiente">
+            <WarningCircle size={32} weight="fill" />
+            <div className="ap-status__text">
+              <strong>Tenés pagos pendientes</strong>
+              <span>Total a pagar</span>
+            </div>
+            <strong className="ap-status__monto">{fmt$(total)}</strong>
           </div>
-          <div className="ap-row">
-            <span>Base del día</span>
-            <strong>{fmt$(base)}</strong>
+        )}
+
+        <div className="ap-cards">
+          <div className="ap-card">
+            <Coins size={18} weight="fill" className="ap-card__icon ap-card__icon--base" />
+            <span className="ap-card__label">Base del día</span>
+            <strong className="ap-card__value">{fmt$(base)}</strong>
           </div>
-          <div className="ap-row ap-row--total">
-            <span>Total a pagar</span>
-            <strong>{fmt$(total)}</strong>
-          </div>
+          {deuda > 0 && (
+            <div className="ap-card ap-card--danger">
+              <Warning size={18} weight="fill" className="ap-card__icon ap-card__icon--danger" />
+              <span className="ap-card__label">Deuda</span>
+              <strong className="ap-card__value">{fmt$(deuda)}</strong>
+            </div>
+          )}
+          {multa > 0 && (
+            <div className="ap-card ap-card--warning">
+              <Warning size={18} weight="fill" className="ap-card__icon ap-card__icon--warning" />
+              <span className="ap-card__label">Multa</span>
+              <strong className="ap-card__value">{fmt$(multa)}</strong>
+            </div>
+          )}
         </div>
 
-        <button className="ap-pay-btn" disabled>
-          Pagar
-        </button>
+        {total > 0 && (
+          <button className="ap-pay-btn" disabled>
+            Pagar {fmt$(total)}
+          </button>
+        )}
       </div>
 
       <div className="ap-section">
