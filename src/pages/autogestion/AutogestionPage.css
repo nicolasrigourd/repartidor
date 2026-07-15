@@ -69,3 +69,110 @@
   color: rgba(240,246,252,0.3);
 }
 .ap-empty span { font-size: 13px; line-height: 1.4; max-width: 240px; }
+
+/* ── Historial ─────────────────────────────────────────── */
+
+.ap-hist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ap-hist-item {
+  border-radius: 12px;
+  background: rgba(240,246,252,0.04);
+  overflow: hidden;
+}
+
+.ap-hist-item__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ap-hist-item__icon--ok   { color: #22c55e; flex-shrink: 0; }
+.ap-hist-item__icon--warn { color: #f87171; flex-shrink: 0; }
+
+.ap-hist-item__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ap-hist-item__fecha   { font-size: 13.5px; font-weight: 700; color: #f0f6fc; }
+.ap-hist-item__resumen { font-size: 12px; color: rgba(240,246,252,0.5); }
+
+.ap-hist-item__caret {
+  color: rgba(240,246,252,0.35);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.ap-hist-item__caret--open { transform: rotate(180deg); }
+
+.ap-hist-item__detalle {
+  padding: 0 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ap-hist-detalle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(240,246,252,0.05);
+}
+.ap-hist-detalle-row:last-of-type { border-bottom: none; }
+.ap-hist-detalle-row span   { font-size: 12.5px; color: rgba(240,246,252,0.5); }
+.ap-hist-detalle-row strong { font-size: 12.5px; font-weight: 700; color: #f0f6fc; }
+.ap-hist-detalle-row--total {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(240,246,252,0.08);
+}
+.ap-hist-detalle-row--total span   { font-weight: 700; color: rgba(240,246,252,0.7); }
+.ap-hist-detalle-row--total strong { font-size: 14px; }
+
+.ap-hist-pagos {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(240,246,252,0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ap-hist-pagos__title {
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(240,246,252,0.4);
+}
+.ap-hist-pago {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(240,246,252,0.6);
+}
+.ap-hist-pago strong { color: #f0f6fc; font-weight: 700; }
+
+.ap-ver-mas {
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(240,246,252,0.1);
+  background: none;
+  color: rgba(240,246,252,0.6);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ap-ver-mas:disabled { opacity: 0.5; cursor: not-allowed; }

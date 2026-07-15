@@ -25,6 +25,7 @@ import ModalGpsError from "../../components/modalgpserror/ModalGpsError";
 import ModalSinConexion from "../../components/modalsinconexion/ModalSinConexion";
 import { getBatteryInfo, isBatteryCritical } from "../../services/batteryService";
 import { getNetworkStatus, addNetworkListener } from "../../services/networkService";
+import { initNotifications } from "../../services/notificationService";
 import { App as CapApp } from "@capacitor/app";
 
 import {
@@ -273,6 +274,14 @@ function Home({ repartidorId, user, onLogout }) {
 
   const isBootstrapping =
     !admissionLoaded || !liveLoaded || !offersLoaded || !activeOrderLoaded;
+
+  // Registra el FCM token una vez que el repartidor está identificado.
+  // initNotifications pide permiso, obtiene el token y lo guarda en
+  // Firestore repartidores/{cadeteId}.fcmToken para que sendOfferPush lo lea.
+  useEffect(() => {
+    if (!cadeteId) return;
+    initNotifications(cadeteId);
+  }, [cadeteId]);
 
   const workStatus = useMemo(
     () =>
@@ -1694,7 +1703,7 @@ function Home({ repartidorId, user, onLogout }) {
         <div className="driver-page-scroll">
           {activeTab === "pedidos"     && <PedidosPage />}
           {activeTab === "billetera"   && <BilleteraPage ficha={ficha} repartidorId={repartidorId} />}
-          {activeTab === "autogestion" && <AutogestionPage ficha={ficha} />}
+          {activeTab === "autogestion" && <AutogestionPage ficha={ficha} repartidorId={repartidorId} />}
           {activeTab === "perfil"      && (
             <PerfilPage
               ficha={ficha}
