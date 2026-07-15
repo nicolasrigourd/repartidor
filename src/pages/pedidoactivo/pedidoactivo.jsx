@@ -11,11 +11,19 @@ import { ref, update, remove } from "firebase/database";
 import {
   ArrowLeft, MapPin, Phone, CaretDown, CaretUp,
   Warning, NavigationArrow, CurrencyDollar,
+  SpeakerHigh, SpeakerSlash,
 } from "@phosphor-icons/react";
 
 import { db, rtdb } from "../../firebaseconfig";
 import { openNativeNavigation } from "../../services/nativeNavigation";
+import { calcularRuta, distanciaAPolyline } from "../../services/rutaService";
+import { decirInstruccion } from "../../services/vozNavegacion";
+import MapaEntrega from "../../components/mapaentrega/MapaEntrega";
 import "./pedidoactivo.css";
+
+const RADIO_LLEGADA_PASO_M   = 40;   // a esta distancia del fin del paso, avanza al siguiente
+const RADIO_DESVIO_M         = 80;   // más lejos que esto de la polyline, se considera desvío
+const COOLDOWN_RECALCULO_MS  = 20000; // no recalcular más seguido que esto
 
 function haversineM(a, b) {
   if (!a || !b) return Infinity;
@@ -49,11 +57,9 @@ const STEP_CONFIG = {
     actionLabel: "Listo, comprendido",
     nextStep: "started_pickup",
     nextStatus: "started_pickup",
-    routeTarget: "pickup",
-    openMapOnAdvance: true,
     collapseOnAdvance: true,
     buttonVariant: "start",
-    helperText: "Al confirmar se abrirá la ruta al punto de retiro.",
+    helperText: "Al confirmar, el mapa te guía al punto de retiro.",
     deliveryTimeField: "startedPickupAt",
   },
 
@@ -64,8 +70,6 @@ const STEP_CONFIG = {
     actionLabel: "Llegué al origen",
     nextStep: "arrived_pickup",
     nextStatus: "arrived_pickup",
-    routeTarget: "pickup",
-    openMapOnAdvance: false,
     buttonVariant: "pickup",
     helperText: "Confirmá solo cuando estés en el punto de retiro.",
     deliveryTimeField: "arrivedPickupAt",
@@ -78,10 +82,8 @@ const STEP_CONFIG = {
     actionLabel: "Pedido retirado",
     nextStep: "go_to_dropoff",
     nextStatus: "picked_up",
-    routeTarget: "dropoff",
-    openMapOnAdvance: true,
     buttonVariant: "picked",
-    helperText: "Al confirmar el retiro se abrirá la ruta al destino.",
+    helperText: "Al confirmar el retiro, el mapa te guía al destino.",
     deliveryTimeField: "pickedUpAt",
   },
 
@@ -92,8 +94,6 @@ const STEP_CONFIG = {
     actionLabel: "Llegué al destino",
     nextStep: "arrived_dropoff",
     nextStatus: "arrived_dropoff",
-    routeTarget: "dropoff",
-    openMapOnAdvance: false,
     buttonVariant: "dropoff",
     helperText: "Confirmá solo cuando estés en el domicilio de entrega.",
     deliveryTimeField: "arrivedDropoffAt",
@@ -106,8 +106,6 @@ const STEP_CONFIG = {
     actionLabel: "Finalizar pedido",
     nextStep: "delivered",
     nextStatus: "delivered",
-    routeTarget: "dropoff",
-    openMapOnAdvance: false,
     buttonVariant: "finish",
     helperText: "Finalizá únicamente cuando el pedido esté entregado.",
     deliveryTimeField: "finishedAt",
@@ -120,8 +118,6 @@ const STEP_CONFIG = {
     actionLabel: "Volver al inicio",
     nextStep: null,
     nextStatus: null,
-    routeTarget: "dropoff",
-    openMapOnAdvance: false,
     buttonVariant: "done",
     helperText: "",
     deliveryTimeField: null,
@@ -375,9 +371,18 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   // destino del próximo tramo en grande.
   const [isExpanded, setIsExpanded] = useState(true);
 
+  // ── Mapa embebido ──────────────────────────────────────────
+  const [posicionMapa, setPosicionMapa] = useState(null);
+  const [ruta, setRuta] = useState(null);
+  const [pasoActualIndex, setPasoActualIndex] = useState(0);
+  const [vozActiva, setVozActiva] = useState(false);
+  const [calculandoRuta, setCalculandoRuta] = useState(false);
+
   const lastGpsWriteRef = useRef(null);
   const gpsHeartbeatRef = useRef(null);
   const routeDistKmRef  = useRef(null);
+  const rutaDestinoRef  = useRef(null); // evita recalcular la misma ruta dos veces
+  const ultimoRecalculoRef = useRef(0);
 
   const ficha = user?.ficha || user || {};
 
@@ -454,6 +459,10 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
       (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
 
+        // Alimenta el mapa embebido en cada fix — más seguido que el
+        // throttle de escritura a RTDB, para que el marcador se mueva fluido.
+        setPosicionMapa(coords);
+
         const moved = haversineM(lastGpsWriteRef.current, coords);
         if (moved >= getGpsThresholdM(routeDistKmRef.current)) {
           writeRtdb(coords);
@@ -515,18 +524,6 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
     return buildGoogleMapsDirectionsUrl(data.pickupCoords, data.dropoffCoords);
   }, [data]);
-
-  const openMapForStep = useCallback(
-    (routeTarget) => {
-      if (!data) return;
-
-      const coords  = routeTarget === "dropoff" ? data.dropoffCoords  : data.pickupCoords;
-      const address = routeTarget === "dropoff" ? data.dropoffAddress : data.pickupAddress;
-
-      openNativeNavigation({ lat: coords?.lat, lng: coords?.lng, address });
-    },
-    [data]
-  );
 
   const updateActiveOrderMirror = useCallback(
     async (payload) => {
@@ -662,12 +659,6 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
         [timestampField]: nowMs,
       });
 
-      if (currentConfig.openMapOnAdvance) {
-        setTimeout(() => {
-          openMapForStep(currentConfig.routeTarget);
-        }, 250);
-      }
-
       if (currentConfig.collapseOnAdvance) {
         setIsExpanded(false);
       }
@@ -684,7 +675,6 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
     updateActiveOrderMirror,
     cadeteId,
     navigate,
-    openMapForStep,
     releaseDriver,
   ]);
 
@@ -704,6 +694,64 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
   const canNavigate = Boolean(
     currentDestination?.lat != null || (currentAddress && currentAddress !== "—")
   );
+
+  // ── Calcula la ruta cuando cambia el destino (pickup → dropoff) o al
+  // conseguir la primera posición GPS ──────────────────────────────────
+  const destinoLat = currentDestination?.lat ?? null;
+  const destinoLng = currentDestination?.lng ?? null;
+
+  useEffect(() => {
+    if (destinoLat == null || destinoLng == null) return;
+    const posicion = posicionMapa || lastGpsWriteRef.current;
+    if (!posicion) return;
+
+    const key = `${destinoLat},${destinoLng}`;
+    if (rutaDestinoRef.current === key) return; // ya calculamos esta ruta
+
+    rutaDestinoRef.current = key;
+    setCalculandoRuta(true);
+    setPasoActualIndex(0);
+
+    calcularRuta(posicion, { lat: destinoLat, lng: destinoLng })
+      .then((resultado) => setRuta(resultado))
+      .finally(() => setCalculandoRuta(false));
+  }, [destinoLat, destinoLng, posicionMapa]);
+
+  // ── Progreso sobre la ruta: avanza el paso actual y detecta desvíos ──
+  useEffect(() => {
+    if (!posicionMapa || !ruta?.pasos?.length) return;
+
+    const pasoActual = ruta.pasos[pasoActualIndex];
+    if (pasoActual?.fin?.lat != null) {
+      const distAlFinDelPaso = haversineM(posicionMapa, pasoActual.fin);
+      if (distAlFinDelPaso <= RADIO_LLEGADA_PASO_M && pasoActualIndex < ruta.pasos.length - 1) {
+        const siguiente = pasoActualIndex + 1;
+        setPasoActualIndex(siguiente);
+        if (vozActiva) decirInstruccion(ruta.pasos[siguiente].instruccion);
+        return;
+      }
+    }
+
+    // Desvío de la ruta calculada → recalcular (con cooldown para no spamear)
+    const distPolyline = distanciaAPolyline(posicionMapa, ruta.polyline);
+    const ahora = Date.now();
+    if (
+      distPolyline > RADIO_DESVIO_M &&
+      ahora - ultimoRecalculoRef.current > COOLDOWN_RECALCULO_MS &&
+      destinoLat != null && destinoLng != null
+    ) {
+      ultimoRecalculoRef.current = ahora;
+      rutaDestinoRef.current = null; // fuerza que el efecto de arriba recalcule
+    }
+  }, [posicionMapa, ruta, pasoActualIndex, vozActiva, destinoLat, destinoLng]);
+
+  // Lee en voz alta la primera indicación apenas llega una ruta nueva
+  useEffect(() => {
+    if (ruta?.pasos?.[0]?.instruccion && vozActiva) {
+      decirInstruccion(ruta.pasos[0].instruccion);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ruta]);
 
   const pickupFloorInfo  = formatFloorInfo(data?.pickupFloor, data?.pickupApartment);
   const dropoffFloorInfo = formatFloorInfo(data?.dropoffFloor, data?.dropoffApartment);
@@ -758,8 +806,51 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
 
   if (!data) return null;
 
+  const pasoActual = ruta?.pasos?.[pasoActualIndex] || null;
+
   return (
     <div className="pa-root">
+
+      {/* ── MAPA — de fondo, a pantalla completa ──────────── */}
+      <MapaEntrega
+        posicionActual={posicionMapa}
+        destino={currentDestination?.lat != null ? currentDestination : null}
+        tipoDestino={isGoingToPickup ? "pickup" : "dropoff"}
+        polyline={ruta?.polyline || []}
+      />
+
+      {/* ── Cartel de próxima indicación ──────────────────── */}
+      {pasoActual && (
+        <div className="pa-nav-banner">
+          <span className="pa-nav-banner__dist">
+            {pasoActual.distanciaM >= 1000
+              ? `${(pasoActual.distanciaM / 1000).toFixed(1)} km`
+              : `${Math.round(pasoActual.distanciaM)} m`}
+          </span>
+          <p className="pa-nav-banner__texto">{pasoActual.instruccion}</p>
+          <button
+            type="button"
+            className="pa-nav-banner__voz"
+            aria-label={vozActiva ? "Silenciar indicaciones" : "Activar voz"}
+            onClick={() => {
+              setVozActiva((v) => {
+                const next = !v;
+                if (next && pasoActual?.instruccion) decirInstruccion(pasoActual.instruccion);
+                return next;
+              });
+            }}
+          >
+            {vozActiva ? <SpeakerHigh size={18} weight="fill" /> : <SpeakerSlash size={18} weight="fill" />}
+          </button>
+        </div>
+      )}
+
+      {!pasoActual && calculandoRuta && (
+        <div className="pa-nav-banner pa-nav-banner--loading">
+          <span className="pa-spinner pa-spinner--sm" />
+          <p className="pa-nav-banner__texto">Calculando ruta…</p>
+        </div>
+      )}
 
       {/* ── TOP HUD — progreso + volver ─────────────────── */}
       <div className="pa-top-hud">
@@ -830,7 +921,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
               {/* RETIRAR DE */}
               <div className="pa-stop pa-stop--pickup">
                 <span className="pa-stop__label">
-                  {data.serviceTypeId === "compras" ? "Retirar / comprar en" : "Retirar de"}
+                  {data.serviceTypeId === "shopping" ? "Retirar / comprar en" : "Retirar de"}
                 </span>
                 <div className="pa-stop__address-row">
                   <p className="pa-stop__address">{data.pickupAddress}</p>
@@ -842,7 +933,7 @@ function PedidoActivo({ repartidorId: propRepartidorId, user }) {
                 </div>
                 {pickupFloorInfo && <p className="pa-stop__floor">{pickupFloorInfo}</p>}
                 {data.notesFrom && <p className="pa-stop__notes">📝 {data.notesFrom}</p>}
-                {data.serviceTypeId === "compras" && data.productList.length > 0 && (
+                {data.serviceTypeId === "shopping" && data.productList.length > 0 && (
                   <ul className="pa-cart-list">
                     {data.productList.map((item, i) => (
                       <li key={i}>🛒 {item}</li>

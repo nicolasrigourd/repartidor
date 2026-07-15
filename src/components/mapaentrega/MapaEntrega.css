@@ -1,0 +1,64 @@
+.me-mapa {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #0D2433;
+}
+
+.me-mapa__container {
+  width: 100%;
+  height: 100%;
+  background: #0D2433;
+}
+
+/* Leaflet en tema oscuro — invertimos un poco los tiles para que no
+   sea un cuadrado blanco brillante en medio de la UI oscura del resto
+   de la app. */
+.me-mapa__container .leaflet-tile-pane {
+  filter: brightness(0.72) invert(1) contrast(0.9) hue-rotate(200deg) saturate(0.6);
+}
+
+.me-pin {
+  border: none;
+  background: transparent;
+}
+
+.me-pin span {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 900;
+  color: #03100b;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.45);
+  border: 3px solid rgba(0,0,0,0.65);
+}
+
+.me-pin--pickup span  { background: #2DD4BF; }
+.me-pin--dropoff span { background: #C4B5FD; }
+
+.me-pin-repartidor { border: none; background: transparent; }
+
+.me-pin-repartidor span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #22c55e;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 4px rgba(34,197,94,0.35), 0 2px 8px rgba(0,0,0,0.5);
+}
+
+.leaflet-tooltip {
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 5px 10px !important;
+  background: rgba(8, 18, 14, 0.92) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.26) !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
