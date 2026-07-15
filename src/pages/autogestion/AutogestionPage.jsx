@@ -30,10 +30,10 @@ function HistorialDiaItem({ dia }) {
   return (
     <div className="ap-hist-item">
       <button className="ap-hist-item__head" onClick={() => setAbierto((v) => !v)}>
-        <div className="ap-hist-item__estado">
+        <div className={`ap-hist-item__estado ${sinSaldo ? "ap-hist-item__estado--ok" : "ap-hist-item__estado--warn"}`}>
           {sinSaldo
-            ? <CheckCircle size={18} weight="fill" className="ap-hist-item__icon--ok" />
-            : <WarningCircle size={18} weight="fill" className="ap-hist-item__icon--warn" />}
+            ? <CheckCircle size={16} weight="bold" />
+            : <WarningCircle size={16} weight="bold" />}
         </div>
         <div className="ap-hist-item__info">
           <span className="ap-hist-item__fecha">{formatDia(dia.dateKey)}</span>
@@ -133,21 +133,27 @@ export default function AutogestionPage({ ficha, repartidorId }) {
 
         <div className="ap-montos">
           <div className="ap-monto">
-            <Coins size={20} weight="fill" className="ap-monto__icon ap-monto__icon--base" />
+            <span className="ap-monto__badge ap-monto__badge--base">
+              <Coins size={18} weight="fill" />
+            </span>
             <strong className="ap-monto__valor">{fmt$(base)}</strong>
             <span className="ap-monto__label">Base del día</span>
           </div>
           {deuda > 0 && (
             <div className="ap-monto">
-              <Warning size={20} weight="fill" className="ap-monto__icon ap-monto__icon--danger" />
-              <strong className="ap-monto__valor ap-danger">{fmt$(deuda)}</strong>
+              <span className="ap-monto__badge ap-monto__badge--danger">
+                <Warning size={18} weight="fill" />
+              </span>
+              <strong className="ap-monto__valor">{fmt$(deuda)}</strong>
               <span className="ap-monto__label">Deuda</span>
             </div>
           )}
           {multa > 0 && (
             <div className="ap-monto">
-              <Warning size={20} weight="fill" className="ap-monto__icon ap-monto__icon--warning" />
-              <strong className="ap-monto__valor ap-warning">{fmt$(multa)}</strong>
+              <span className="ap-monto__badge ap-monto__badge--warning">
+                <Warning size={18} weight="fill" />
+              </span>
+              <strong className="ap-monto__valor">{fmt$(multa)}</strong>
               <span className="ap-monto__label">Multa</span>
             </div>
           )}
